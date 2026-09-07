@@ -28,7 +28,7 @@ const ctx = {
 };
 const canvas = { getContext: () => ctx };
 
-const PX = 480;
+const PX = +(process.env.PX || 480);   // PX=1024 to measure what a sharper render costs
 const sp = proj.toStatePlane(+lon, +lat);
 const win = proj.windowFor(sp.x, sp.y, +side, PX);
 console.log(`window ${side} ft at state plane ${sp.x.toFixed(1)}, ${sp.y.toFixed(1)}`);

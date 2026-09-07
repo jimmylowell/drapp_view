@@ -1,7 +1,27 @@
 /* Page logic: address → window → one overlay per DRAPP year on the base map. */
 (function () {
   const { proj, sources, tileindex, imageserver, tiffwindow, geocode, cache, warp, basemaps } = DRAPP;
-  const PX = 512;                 // state-plane render size
+  /* How big to render a square, in pixels. DRAPP's resolution is the whole
+     point of the page, so this goes right up to two ceilings:
+       - the source. DRAPP flies 3 inch in the urban core, 6 inch further out;
+         asking for finer than that only invents pixels.
+       - the screen. The square is always fitted to the map, so how big it lands
+         barely changes with the window — past that nobody can see more, and on
+         a phone it is a good deal less.
+     The two paths get different ceilings because they cost differently. The
+     ImageServer is one request whatever the size (measured: 512 → 0.37s/51 KB,
+     1024 → 0.64s/155 KB, 2048 → 1.3s/419 KB; it refuses past 4096). The archive
+     path is one HTTP range request per output row, so pixels and requests climb
+     together — 2016 at a 300 ft square is 12.9s at 512, 26s at its native 1200.
+     It gets off lightly on the coarse years though: requests are the *distinct
+     source rows* touched, so a 6-inch year costs the same however big we render
+     it (2006 is 6.0s either way). At 150 and 300 ft — where the resolution is
+     the thing you came to see — both ceilings land on the source's own pixels. */
+  const SRC_IN = 3;               // DRAPP's finest ground sample, inches
+  const PX_MIN = 512;
+  const PX_STREAM_MAX = 2048;
+  const PX_ARCHIVE_MAX = 1280;
+  const CELL = 768;               // contact-sheet cell: one fixed size, since the squares vary
   const PAD = 1.03;               // render a little wider than shown, so the rotated square covers the box
   const SIDES = [150, 300, 600, 1200];
 
@@ -29,6 +49,18 @@
     base = basemaps.init(map, { button: $('#base-btn'), menu: $('#base-menu') });
   }
 
+  /* Device pixels the square lands on once it is fitted to the map. */
+  function screenPx() {
+    const s = map.getSize();
+    return Math.max(1, Math.min(s.x, s.y) - 80) * (window.devicePixelRatio || 1);
+  }
+
+  /* Source pixels, screen pixels, path ceiling — whichever is smallest. */
+  function renderPx(sideFt, max, screen) {
+    const native = Math.round(sideFt * 12 / SRC_IN);
+    return Math.max(PX_MIN, Math.min(native, Math.round(screen ?? screenPx()), max));
+  }
+
   /* ---------- per-year records + menu rows ---------- */
   function makeRec(year) {
     const row = document.createElement('div');
@@ -41,7 +73,6 @@
       <details class="files"><summary aria-label="Files for ${year}">⤓</summary><ul></ul></details>`;
     menu.querySelector('.rows').appendChild(row);
     const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = PX;
     const rec = {
       year, row, canvas,
       pick: $('.pick', row), st: $('.st', row), bar: $('.pbar i', row), files: $('.files ul', row),
@@ -61,7 +92,7 @@
   }
 
   function resetRec(rec) {
-    rec.canvas.getContext('2d').clearRect(0, 0, PX, PX);
+    rec.canvas.getContext('2d').clearRect(0, 0, rec.canvas.width, rec.canvas.height);
     if (rec.overlay) { map.removeLayer(rec.overlay); rec.overlay = null; }
     rec.merc = null; rec.src = ''; rec.meta = ''; rec.tiles = [];
     rec.files.innerHTML = '<li class="dim">looking up tiles…</li>';
@@ -101,7 +132,7 @@
   /* A finished square: warp onto the map, fade in if it is the one to show. */
   function finish(rec, win, sq, srcLabel, note) {
     rec.src = srcLabel + (note ? ' ' + note : '');
-    rec.merc = warp.toMercator(rec.canvas, win, sq, PX);
+    rec.merc = warp.toMercator(rec.canvas, win, sq, win.px);
     setStatus(rec, 'ready', readyText(rec), null);
     rec.merc.toBlob((blob) => {
       if (!blob || rec.status !== 'ready') return;
@@ -180,7 +211,16 @@
       map.setView([state.lat, state.lon], 12);
       return;
     }
-    const win = proj.windowFor(sp.x, sp.y, state.side * PAD, PX);
+    /* One ground window per render size. The tile index only needs the extent,
+       so it uses the archive one. */
+    const winAt = (px) => proj.windowFor(sp.x, sp.y, state.side * PAD, px);
+    const win = winAt(renderPx(state.side, PX_ARCHIVE_MAX));
+    const winStream = winAt(renderPx(state.side, PX_STREAM_MAX));
+    const pxFor = (year) => (sources.SOURCES[year].stream ? winStream.px : win.px);
+    const prep = (rec, w) => {
+      rec.canvas.width = rec.canvas.height = w.px;   // also clears it
+      return w;
+    };
     const sq = warp.mercSquare(state.lat, state.lon, state.side);
     const b = warp.bounds(sq);
     say(`${state.label} — ${state.side} ft square. Newest year first, then back through the archive.`);
@@ -198,12 +238,14 @@
     if (!state.fresh) {
       await Promise.all(sources.YEARS.map(async (year) => {
         const rec = recs.get(year);
-        const hit = await cache.get(year, win);
+        const w = winAt(pxFor(year));
+        const hit = await cache.get(year, w);
         if (!hit || signal.aborted) return;
         try {
+          prep(rec, w);
           await cache.draw(hit, rec.canvas);
           rec.meta = hit.meta || '';
-          finish(rec, win, sq, hit.src || '', '· cached');
+          finish(rec, w, sq, hit.src || '', '· cached');
           cached.add(year);
         } catch (e) { /* fall through to a live render */ }
       }));
@@ -228,8 +270,8 @@
       const rec = recs.get(year);
       setStatus(rec, 'loading', 'streaming…', null);
       try {
-        await imageserver.render(sources.SOURCES[year].stream, win, rec.canvas, signal);
-        finish(rec, win, sq, sources.STREAM_LABEL);
+        await imageserver.render(sources.SOURCES[year].stream, prep(rec, winStream), rec.canvas, signal);
+        finish(rec, winStream, sq, sources.STREAM_LABEL);
         toCache.push(year);
       } catch (e) {
         if (e.name === 'AbortError') return;
@@ -253,7 +295,7 @@
       const t0 = performance.now();
       try {
         setStatus(rec, 'loading', 'opening tile…', 0);
-        const out = await tiffwindow.render(rec.tiles, win, rec.canvas, signal, (f, note) => setStatus(rec, 'loading', note, f));
+        const out = await tiffwindow.render(rec.tiles, prep(rec, win), rec.canvas, signal, (f, note) => setStatus(rec, 'loading', note, f));
         const secs = ((performance.now() - t0) / 1000).toFixed(1);
         finish(rec, win, sq, sources.ARCHIVE_LABEL, `(${out.mode}, ${secs}s)`);
         cache.put(year, win, rec.canvas, { src: sources.ARCHIVE_LABEL, meta: rec.meta });
@@ -276,7 +318,7 @@
       await Promise.all(streamed);
       for (const year of toCache) {
         const rec = recs.get(year);
-        cache.put(year, win, rec.canvas, { src: sources.STREAM_LABEL, meta: rec.meta });
+        cache.put(year, winStream, rec.canvas, { src: sources.STREAM_LABEL, meta: rec.meta });
       }
       queue = fallbacks.sort((a, b) => b - a);
       while (queue.length) {
@@ -413,23 +455,23 @@
     const cols = 4, gap = 16, label = 34, footer = 40;
     const rows = Math.ceil(sources.YEARS.length / cols);
     const sheet = document.createElement('canvas');
-    sheet.width = cols * PX + (cols + 1) * gap;
-    sheet.height = rows * (PX + label) + (rows + 1) * gap + footer;
+    sheet.width = cols * CELL + (cols + 1) * gap;
+    sheet.height = rows * (CELL + label) + (rows + 1) * gap + footer;
     const ctx = sheet.getContext('2d');
     ctx.fillStyle = '#0f1418'; ctx.fillRect(0, 0, sheet.width, sheet.height);
     ctx.textBaseline = 'middle';
     sources.YEARS.forEach((year, i) => {
       const rec = recs.get(year);
-      const x = gap + (i % cols) * (PX + gap), y = gap + Math.floor(i / cols) * (PX + label + gap);
+      const x = gap + (i % cols) * (CELL + gap), y = gap + Math.floor(i / cols) * (CELL + label + gap);
       ctx.fillStyle = '#e6e9ec'; ctx.font = '600 22px system-ui, sans-serif';
       ctx.fillText(String(year), x, y + label / 2);
       ctx.fillStyle = '#98a3ad'; ctx.font = '14px system-ui, sans-serif';
       if (rec.meta) ctx.fillText(rec.meta, x + 70, y + label / 2);
-      if (rec.status === 'ready' && rec.merc) ctx.drawImage(rec.merc, x, y + label);
+      if (rec.status === 'ready' && rec.merc) ctx.drawImage(rec.merc, x, y + label, CELL, CELL);
       else {
-        ctx.fillStyle = '#171e25'; ctx.fillRect(x, y + label, PX, PX);
+        ctx.fillStyle = '#171e25'; ctx.fillRect(x, y + label, CELL, CELL);
         ctx.fillStyle = '#98a3ad'; ctx.textAlign = 'center';
-        ctx.fillText(rec.st.textContent.slice(0, 60), x + PX / 2, y + label + PX / 2);
+        ctx.fillText(rec.st.textContent.slice(0, 60), x + CELL / 2, y + label + CELL / 2);
         ctx.textAlign = 'left';
       }
     });
@@ -460,5 +502,5 @@
   else say('Type an address in the Denver region to see it in every DRAPP year.');
   updateCacheNote();
 
-  DRAPP.app = { state, show, recs, contactSheet, currentYear, map: () => map, base: () => base };
+  DRAPP.app = { state, show, recs, contactSheet, currentYear, renderPx, map: () => map, base: () => base };
 })();

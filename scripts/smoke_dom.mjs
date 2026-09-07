@@ -76,6 +76,17 @@ check(failed === 12, `all 12 years should report failure offline, ${failed} did`
 check(!/queued|streaming/.test(document.querySelector('.yrow[data-year="2024"] .st').textContent), '2024 is not stuck loading');
 check(document.querySelector('#year-btn').textContent.includes('loading') === false || true, 'year button rendered');
 
+/* Render size: source pixels, screen pixels, path ceiling — smallest wins, and
+   never below the 512 floor. A 150 ft square at 3 inch is only 600 source
+   pixels, so it must not ask for more however big the screen is. */
+const rpx = (side, max, screen = 1720) => window.DRAPP.app.renderPx(side, max, screen);
+check(rpx(150, 4096) === 600, `150 ft should render at its 600 native pixels, got ${rpx(150, 4096)}`);
+check(rpx(300, 2048) === 1200, `300 ft should render at its 1200 native pixels, got ${rpx(300, 2048)}`);
+check(rpx(50, 4096) === 512, `tiny squares floor at 512, got ${rpx(50, 4096)}`);
+check(rpx(1200, 1280) === 1280, `the path ceiling caps big squares, got ${rpx(1200, 1280)}`);
+check(rpx(1200, 4096) === 1720, `a big square is capped by the screen, got ${rpx(1200, 4096)}`);
+check(rpx(1200, 4096, 800) === 800, 'a smaller screen asks for less');
+
 /* Base map picker: the catalog builds, the default is Bing aerial, and the
    Wayback group degrades to a note rather than throwing when its list is dead. */
 const base = window.DRAPP.app.base();
@@ -115,5 +126,5 @@ check(Math.abs(sp.x - 3142421.6) < 2 && Math.abs(sp.y - 1697808.8) < 2, `state p
 check(pageErrors.length === 0, 'page errors: ' + pageErrors.join(' | '));
 
 if (fails.length) { console.error('SMOKE FAIL\n - ' + fails.join('\n - ')); process.exit(1); }
-console.log('smoke ok: map + 12 year rows, base map picker, hash state, offline failure states, region check, projection');
+console.log('smoke ok: map + 12 year rows, render sizing, base map picker, hash state, offline failure states, region check, projection');
 process.exit(0);

@@ -17,7 +17,8 @@ compile. `package.json` is dev tooling only (jsdom for the smoke test).
    to Nominatim. Or type `lat, lon`.
 2. **Project** to Colorado State Plane Central, US feet (EPSG:2232) with proj4js, and
    build a square window (150–1200 ft) centred on the point. Every year renders onto
-   the same 512×512 state-plane grid, so features line up year to year, then is warped
+   the same state-plane grid (sized per **Render size** below), so features line up
+   year to year, then is warped
    with one canvas affine onto Web Mercator (`js/warp.js`) and dropped on a Leaflet map
    over the base map of your choice (`js/basemaps.js`, below). The newest year fades
    in first; the year menu shows each year's download progress and switches the overlay. Picking a year that is still
@@ -46,9 +47,32 @@ network (handy for UI work, too). Add `&fresh=1` to the hash to bypass the cache
 use the "Clear the cache" link in the footer. "Save all years" downloads one PNG
 contact sheet of the current address.
 
-A 300 ft window at 3‑inch resolution costs roughly 500 small requests and about 1 MB
-per archive year, 5–12 s each. Archive years load one at a time so the request stream
-stays polite; changing the address aborts everything in flight.
+## Render size
+
+DRAPP's resolution is the point of the page, so a square is rendered at the smallest of
+three numbers: the **source's** own pixels (3 inch in the urban core, 6 inch further
+out — finer than that is invented), the **screen's** (the square is always fitted to
+the map, so on a phone this is the binding one), and a **per‑path ceiling**.
+
+The two render paths cost differently, so they get different ceilings:
+
+- The ImageServer is one request whatever the size — 512 → 0.37 s / 51 KB, 1024 →
+  0.64 s / 155 KB, 2048 → 1.3 s / 419 KB, and it refuses past 4096. Ceiling 2048.
+- The archive path is one HTTP range request per output row, so pixels and requests
+  climb together: 2016 at a 300 ft square is 12.9 s at 512 and 26 s at 1200. It gets
+  off lightly on the coarse years, though — requests are the *distinct source rows*
+  touched, so a 6‑inch year costs the same however big we render it (2006 is 6.0 s
+  either way). Ceiling 1280.
+
+At 150 ft (600 px) and 300 ft (1200 px) every ceiling lands on the source's own pixels,
+so the windows where the resolution is the thing you came to see are rendered natively.
+On a 1300 px Retina window a 300 ft square is drawn at 796 CSS px from a 1200 px render
+— downsampled, never stretched.
+
+A 300 ft window costs roughly 1200 small requests and about 3 MB per 3‑inch archive
+year, 6–26 s each; all twelve years together are 22 MB and about 75 s. Archive years
+load one at a time so the request stream stays polite; changing the address aborts
+everything in flight.
 
 ## Base maps (`js/basemaps.js`)
 
