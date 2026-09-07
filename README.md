@@ -36,6 +36,12 @@ compile. `package.json` is dev tooling only (jsdom for the smoke test).
    - **2002** (JPEG 2000) and **2008** (MrSID) have no browser decoder here; the page
      offers the tile downloads instead.
 
+Every finished square is stored in the browser's IndexedDB keyed by year and exact
+window, so a refresh at the same address paints from cache without touching the
+network (handy for UI work, too). Add `&fresh=1` to the hash to bypass the cache, or
+use the "Clear the cache" link in the footer. "Save all years" downloads one PNG
+contact sheet of the current address.
+
 A 300 ft window at 3‑inch resolution costs roughly 500 small requests and about 1 MB
 per archive year, 5–12 s each. Archive years load one at a time so the request stream
 stays polite; changing the address aborts everything in flight.

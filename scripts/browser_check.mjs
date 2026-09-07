@@ -43,15 +43,28 @@ const evalJs = async (expr) => (await send('Runtime.evaluate', { expression: exp
 await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
 if (process.env.MOBILE) await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 await send('Page.navigate', { url });
-const t0 = Date.now();
-let states;
-while (Date.now() - t0 < maxSeconds * 1000) {
-  await sleep(2000);
-  states = await evalJs(`(() => { const c = document.querySelectorAll('.card'); if (!c.length) return null;
-    return [...c].map(el => ({ year: el.dataset.year, done: el.classList.contains('done'), failed: el.classList.contains('failed'),
-      msg: el.querySelector('.msg').textContent, src: el.querySelector('.src').textContent, meta: el.querySelector('.meta').textContent })); })()`);
-  if (states && states.every((s) => s.done || s.failed)) break;
+const settle = async () => {
+  const t0 = Date.now();
+  let states;
+  while (Date.now() - t0 < maxSeconds * 1000) {
+    await sleep(500);
+    states = await evalJs(`(() => { const c = document.querySelectorAll('.card'); if (!c.length) return null;
+      return [...c].map(el => ({ year: el.dataset.year, done: el.classList.contains('done'), failed: el.classList.contains('failed'),
+        msg: el.querySelector('.msg').textContent, src: el.querySelector('.src').textContent, meta: el.querySelector('.meta').textContent })); })()`);
+    if (states && states.every((s) => s.done || s.failed)) break;
+  }
+  return [states, Date.now() - t0];
+};
+let [states, elapsed] = await settle();
+if (process.env.RELOAD) {   // second pass in the same profile: everything should come from the IndexedDB cache
+  console.log(`first pass ${(elapsed / 1000).toFixed(0)}s; reloading…`);
+  await sleep(1500);        // let the last cache.put land
+  await send('Page.reload');
+  [states, elapsed] = await settle();
+  const sheet = await evalJs(`(() => { const c = window.DRAPP.app.contactSheet(); return c ? c.width + 'x' + c.height + ' ' + c.toDataURL('image/png').length + ' bytes' : 'none'; })()`);
+  console.log('contact sheet:', sheet);
 }
+const t0 = Date.now() - elapsed;
 const status = await evalJs(`document.querySelector('#status').textContent`);
 const widths = await evalJs(`document.documentElement.scrollWidth + ' of ' + document.documentElement.clientWidth`);
 console.log(`page width ${widths}px${widths.split(' of ')[0] > widths.split(' of ')[1] ? '  ← HORIZONTAL OVERFLOW' : ''}`);

@@ -1,10 +1,10 @@
 /* Page logic: address → window → one card per DRAPP year. */
 (function () {
-  const { proj, sources, tileindex, imageserver, tiffwindow, geocode } = DRAPP;
+  const { proj, sources, tileindex, imageserver, tiffwindow, geocode, cache } = DRAPP;
   const PX = 480;
   const SIDES = [150, 300, 600, 1200];
 
-  const state = { lat: null, lon: null, side: 300, label: '', cross: true };
+  const state = { lat: null, lon: null, side: 300, label: '', cross: true, fresh: false };
   let controller = null;        // aborts the in-flight render set
   const cards = new Map();      // year → card record
 
@@ -112,6 +112,25 @@
     $('#scale').textContent = `${state.side} ft`;
     for (const rec of cards.values()) resetCard(rec);
 
+    /* Anything already rendered for this exact window paints from IndexedDB. */
+    const cached = new Set();
+    if (!state.fresh) {
+      await Promise.all(sources.YEARS.map(async (year) => {
+        const rec = cards.get(year);
+        const hit = await cache.get(year, win);
+        if (!hit || signal.aborted) return;
+        try {
+          await cache.draw(hit, rec.canvas);
+          rec.meta.textContent = hit.meta || '';
+          markDone(rec, (hit.src || '') + ' · from this browser\'s cache');
+          cached.add(year);
+        } catch (e) { /* fall through to a live render */ }
+      }));
+      if (signal.aborted) return;
+    }
+    const years = sources.YEARS.filter((y) => !cached.has(y));
+    if (!years.length) { say(`${state.label} — ${state.side} ft across. All years from cache.`); updateCacheNote(); return; }
+
     /* Tile lookups for every year, in parallel; they are tiny. */
     const tilesByYear = new Map();
     const lookups = sources.YEARS.map(async (year) => {
@@ -119,6 +138,7 @@
       try {
         const tiles = await tileindex.tilesFor(year, win, signal);
         tilesByYear.set(year, tiles);
+        if (cached.has(year)) return;      // keep the cached meta line; links are still useful
         fillTiles(rec, tiles);
       } catch (e) {
         if (e.name === 'AbortError') return;
@@ -129,13 +149,14 @@
 
     /* Streamed years, all at once. A failure with an archive copy joins the
        archive queue instead of giving up. */
-    const fallbacks = [];
-    const streamed = sources.YEARS.filter((y) => sources.SOURCES[y].stream).map(async (year) => {
+    const fallbacks = [], toCache = [];
+    const streamed = years.filter((y) => sources.SOURCES[y].stream).map(async (year) => {
       const rec = cards.get(year);
       setOverlay(rec, 'requesting from image service…', null);
       try {
         await imageserver.render(sources.SOURCES[year].stream, win, rec.canvas, signal);
         markDone(rec, sources.STREAM_LABEL);
+        toCache.push(year);      // written after the tile lookups so the meta line is in the record
       } catch (e) {
         if (e.name === 'AbortError') return;
         if (sources.SOURCES[year].archive === 'tif') {
@@ -165,6 +186,7 @@
         const out = await tiffwindow.render(tiles, win, rec.canvas, signal, (f, note) => setOverlay(rec, note, f));
         const secs = ((performance.now() - t0) / 1000).toFixed(1);
         markDone(rec, `${sources.ARCHIVE_LABEL} (${out.mode}, ${secs}s)`);
+        cache.put(year, win, rec.canvas, { src: sources.ARCHIVE_LABEL, meta: rec.meta.textContent });
       } catch (e) {
         if (e.name === 'AbortError') throw e;
         markFailed(rec, 'could not read tile: ' + e.message);
@@ -173,16 +195,30 @@
     await Promise.all(lookups);
     if (signal.aborted) return;
     try {
-      for (const year of sources.YEARS.filter((y) => !sources.SOURCES[y].stream).sort((a, b) => b - a)) {
+      for (const year of years.filter((y) => !sources.SOURCES[y].stream).sort((a, b) => b - a)) {
         await fromArchive(year);
       }
       await Promise.all(streamed);
+      for (const year of toCache) {
+        const rec = cards.get(year);
+        cache.put(year, win, rec.canvas, { src: sources.STREAM_LABEL, meta: rec.meta.textContent });
+      }
       for (const year of fallbacks.sort((a, b) => b - a)) await fromArchive(year);
     } catch (e) {
       if (e.name === 'AbortError') return;
       throw e;
     }
-    if (!signal.aborted) say(`${state.label} — ${state.side} ft across. Done.`);
+    if (!signal.aborted) { say(`${state.label} — ${state.side} ft across. Done.`); updateCacheNote(); }
+  }
+
+  /* The cached-years line in the footer. */
+  async function updateCacheNote() {
+    const st = await cache.stats();
+    const el = $('#cache-note');
+    if (!el) return;
+    el.textContent = st.entries
+      ? `${st.entries} rendered square${st.entries === 1 ? '' : 's'} (${(st.bytes / 1e6).toFixed(1)} MB) kept in this browser.`
+      : 'Nothing cached in this browser yet.';
   }
 
   /* ---------- status + hash ---------- */
@@ -204,6 +240,7 @@
     const ll = (h.get('ll') || '').split(',').map(Number);
     const s = +h.get('s');
     if (SIDES.includes(s)) state.side = s;
+    state.fresh = h.get('fresh') === '1';
     if (ll.length === 2 && ll.every((v) => Number.isFinite(v))) {
       state.lat = ll[0]; state.lon = ll[1];
       state.label = h.get('q') || `${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}`;
@@ -269,6 +306,53 @@
     for (const rec of cards.values()) rec.cross.hidden = !state.cross;
   });
 
+  /* ---------- save every year as one image ---------- */
+  function contactSheet() {
+    const ready = sources.YEARS.filter((y) => cards.get(y).ready);
+    if (!ready.length) return null;
+    const cols = 4, gap = 16, label = 34, footer = 40;
+    const rows = Math.ceil(sources.YEARS.length / cols);
+    const sheet = document.createElement('canvas');
+    sheet.width = cols * PX + (cols + 1) * gap;
+    sheet.height = rows * (PX + label) + (rows + 1) * gap + footer;
+    const ctx = sheet.getContext('2d');
+    ctx.fillStyle = '#0f1418'; ctx.fillRect(0, 0, sheet.width, sheet.height);
+    ctx.textBaseline = 'middle';
+    sources.YEARS.forEach((year, i) => {
+      const rec = cards.get(year);
+      const x = gap + (i % cols) * (PX + gap), y = gap + Math.floor(i / cols) * (PX + label + gap);
+      ctx.fillStyle = '#e6e9ec'; ctx.font = '600 22px system-ui, sans-serif';
+      ctx.fillText(String(year), x, y + label / 2);
+      ctx.fillStyle = '#98a3ad'; ctx.font = '14px system-ui, sans-serif';
+      const meta = rec.meta.textContent;
+      if (meta) ctx.fillText(meta, x + 70, y + label / 2);
+      if (rec.ready) ctx.drawImage(rec.canvas, x, y + label);
+      else {
+        ctx.fillStyle = '#171e25'; ctx.fillRect(x, y + label, PX, PX);
+        ctx.fillStyle = '#98a3ad'; ctx.textAlign = 'center';
+        ctx.fillText(rec.msg.textContent.slice(0, 60), x + PX / 2, y + label + PX / 2);
+        ctx.textAlign = 'left';
+      }
+    });
+    ctx.fillStyle = '#98a3ad'; ctx.font = '14px system-ui, sans-serif';
+    ctx.fillText(`${state.label} · ${state.side} ft across · DRAPP imagery, DRCOG Regional Data Catalog (CC BY 3.0) · drapp.myjimmycloud.com`, gap, sheet.height - footer / 2);
+    return sheet;
+  }
+  $('#save-all').addEventListener('click', () => {
+    const sheet = contactSheet();
+    if (!sheet) return say('Nothing rendered yet to save.', 'warn');
+    const a = document.createElement('a');
+    a.href = sheet.toDataURL('image/png');
+    a.download = `drapp-all-years-${state.lat.toFixed(5)}_${state.lon.toFixed(5)}-${state.side}ft.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+  $('#clear-cache').addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    await cache.clear();
+    updateCacheNote();
+    say('Cache cleared. The next address will be fetched fresh.');
+  });
+
   /* ---------- lightbox ---------- */
   const dlg = $('#lightbox');
   const big = $('#big');
@@ -309,6 +393,7 @@
   if (h === true) { input.value = state.label; show(); }
   else if (h === 'geocode') form.requestSubmit();
   else say('Type an address in the Denver region to see it in every DRAPP year.');
+  updateCacheNote();
 
-  DRAPP.app = { state, show, cards };
+  DRAPP.app = { state, show, cards, contactSheet };
 })();
