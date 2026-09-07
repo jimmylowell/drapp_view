@@ -22,7 +22,7 @@
   function initMap() {
     map = L.map('map', { zoomControl: true, maxZoom: 22, zoomSnap: 0.5 }).setView([39.74, -105.0], 10);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 22, maxNativeZoom: 19,
+      maxZoom: 22, maxNativeZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · imagery <a href="https://data.drcog.org">DRCOG DRAPP</a> (CC BY 3.0)',
     }).addTo(map);
     map.attributionControl.setPrefix(false);

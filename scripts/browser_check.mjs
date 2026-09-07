@@ -40,7 +40,23 @@ ws.addEventListener('message', (ev) => {
 const send = (method, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
 const evalJs = async (expr) => (await send('Runtime.evaluate', { expression: expr, returnByValue: true })).result.result.value;
 
-await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
+await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable'); await send('Network.enable');
+/* Per-host byte accounting: proves how much of each 446 MB tile actually crosses the wire. */
+const reqHost = new Map(), bytesByHost = new Map(), countByHost = new Map(), tileBytes = new Map();
+ws.addEventListener('message', (ev) => {
+  const m = JSON.parse(ev.data);
+  if (m.method === 'Network.requestWillBeSent') reqHost.set(m.params.requestId, m.params.request.url);
+  if (m.method === 'Network.responseReceived' && m.params.response.status >= 400) consoleErrors.push(`HTTP ${m.params.response.status} ${m.params.response.url.slice(0, 120)}`);
+  if (m.method === 'Network.loadingFailed') consoleErrors.push(`network failed: ${m.params.errorText} ${(reqHost.get(m.params.requestId) || '').slice(0, 120)}`);
+  if (m.method === 'Network.loadingFinished') {
+    const url = reqHost.get(m.params.requestId); if (!url) return;
+    const host = new URL(url).host, n = m.params.encodedDataLength;
+    bytesByHost.set(host, (bytesByHost.get(host) || 0) + n);
+    countByHost.set(host, (countByHost.get(host) || 0) + 1);
+    const t = url.match(/drapparchive[^/]*\/(\d{4})\/([^?]+)/);
+    if (t) { const k = t[1] + '/' + t[2]; const cur = tileBytes.get(k) || { bytes: 0, reqs: 0 }; cur.bytes += n; cur.reqs++; tileBytes.set(k, cur); }
+  }
+});
 if (process.env.MOBILE) await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 await send('Page.navigate', { url });
 const settle = async () => {
@@ -78,6 +94,9 @@ if (process.env.MENU) {   // open the year menu before the screenshot
   await evalJs(`document.querySelector('#year-btn').click()`);
   await sleep(400);
 }
+console.log('network by host:');
+for (const [h, b] of [...bytesByHost].sort((a, b) => b[1] - a[1])) console.log(`  ${h.padEnd(44)} ${String(countByHost.get(h)).padStart(5)} req ${(b / 1e6).toFixed(2).padStart(8)} MB`);
+if (tileBytes.size) { console.log('archive tiles touched:'); for (const [k, v] of tileBytes) console.log(`  ${k.padEnd(40)} ${String(v.reqs).padStart(5)} req ${(v.bytes / 1e6).toFixed(2).padStart(8)} MB`); }
 const png = (await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })).result.data;
 writeFileSync(shot, Buffer.from(png, 'base64'));
 console.log('screenshot →', shot);
