@@ -48,9 +48,11 @@ const settle = async () => {
   let states;
   while (Date.now() - t0 < maxSeconds * 1000) {
     await sleep(500);
-    states = await evalJs(`(() => { const c = document.querySelectorAll('.card'); if (!c.length) return null;
-      return [...c].map(el => ({ year: el.dataset.year, done: el.classList.contains('done'), failed: el.classList.contains('failed'),
-        msg: el.querySelector('.msg').textContent, src: el.querySelector('.src').textContent, meta: el.querySelector('.meta').textContent })); })()`);
+    states = await evalJs(`(() => { const c = document.querySelectorAll('.yrow'); if (!c.length) return null;
+      const recs = window.DRAPP.app.recs;
+      return [...c].map(el => { const r = recs.get(+el.dataset.year); return { year: el.dataset.year,
+        done: r.status === 'ready' && !!r.overlay, failed: r.status === 'failed' || r.status === 'download',
+        msg: el.querySelector('.st').textContent, src: r.src, meta: r.meta, opacity: r.overlay ? r.overlay.options.opacity : null }; }); })()`);
     if (states && states.every((s) => s.done || s.failed)) break;
   }
   return [states, Date.now() - t0];
@@ -69,12 +71,12 @@ const status = await evalJs(`document.querySelector('#status').textContent`);
 const widths = await evalJs(`document.documentElement.scrollWidth + ' of ' + document.documentElement.clientWidth`);
 console.log(`page width ${widths}px${widths.split(' of ')[0] > widths.split(' of ')[1] ? '  ← HORIZONTAL OVERFLOW' : ''}`);
 console.log(`${((Date.now() - t0) / 1000).toFixed(0)}s — ${status}`);
-for (const s of states || []) console.log(`  ${s.year}  ${s.done ? 'done  ' : s.failed ? 'failed' : 'pending'}  ${s.meta ? '[' + s.meta + '] ' : ''}${s.done ? s.src : s.msg}`);
+for (const s of states || []) console.log(`  ${s.year}  ${s.done ? 'done  ' : s.failed ? 'failed' : 'pending'}  ${s.done && s.opacity > 0 ? '● ' : ''}${s.meta ? '[' + s.meta + '] ' : ''}${s.done ? s.src : s.msg}`);
+console.log('showing:', await evalJs(`window.DRAPP.app.currentYear() + ' | button: ' + document.querySelector('#year-btn').textContent`));
 if (consoleErrors.length) { console.log('console:'); for (const e of consoleErrors) console.log('  ' + e.slice(0, 300)); }
-if (process.env.LIGHTBOX) {   // open the first finished year in the lightbox before the screenshot
-  await evalJs(`document.querySelector('.card.done .larger').click()`);
-  await sleep(500);
-  console.log('lightbox:', await evalJs(`document.querySelector('#lightbox').open + ' ' + document.querySelector('#lb-title').textContent + ' | ' + document.querySelector('#lb-sub').textContent`));
+if (process.env.MENU) {   // open the year menu before the screenshot
+  await evalJs(`document.querySelector('#year-btn').click()`);
+  await sleep(400);
 }
 const png = (await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })).result.data;
 writeFileSync(shot, Buffer.from(png, 'base64'));

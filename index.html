@@ -6,85 +6,73 @@
 <title>Denver Aerials — every DRAPP year at your address</title>
 <meta name="description" content="Type a Denver-area address and see it in every year of DRCOG's Denver Regional Aerial Photography Project, 2002 to today, read straight from the public archive in your browser.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231d2a36'/%3E%3Cpath d='M6 22 14 10l5 7 3-4 4 9z' fill='%23e8c36a'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="js/vendor/leaflet.css">
 <link rel="stylesheet" href="css/site.css">
 </head>
 <body>
-<div class="wrap">
 
-  <header class="masthead">
-    <h1>Denver Aerials</h1>
-    <p class="standfirst">Every year of the <a href="https://drcog.org/data-maps-modeling/data-acquisition-projects" rel="noopener">Denver Regional Aerial Photography Project</a> at one address. DRCOG publishes the imagery free, but as multi-hundred-megabyte tiles named by grid cell. This page finds the right tiles and reads only the pixels around your address, in your browser, with no server in between.</p>
-  </header>
+<header class="masthead">
+  <h1>Denver Aerials</h1>
+  <p>Every year of the <a href="https://drcog.org/data-maps-modeling/data-acquisition-projects" rel="noopener">Denver Regional Aerial Photography Project</a> at one address, read from DRCOG's public archive in your browser. <a href="#about">How it works</a></p>
+</header>
 
-  <form id="addr-form" class="addrbar" autocomplete="off">
-    <label for="addr" class="visually-hidden">Address</label>
-    <input id="addr" name="addr" type="text" placeholder="1001 17th St, Denver  —  or  39.7482, -104.9935" spellcheck="false" enterkeyhint="search">
-    <button type="submit" class="primary">Show every year</button>
-    <button type="button" id="locate" title="Use my location" aria-label="Use my location">◎</button>
-  </form>
+<div id="stage">
+  <div id="map" aria-label="Map"></div>
 
-  <div class="controls">
-    <div class="group">
-      <span class="lab">Width</span>
-      <div class="seg" id="sizes" role="group" aria-label="Window width">
+  <div class="panel panel-addr">
+    <form id="addr-form" class="addrbar" autocomplete="off">
+      <label for="addr" class="visually-hidden">Address</label>
+      <input id="addr" name="addr" type="text" placeholder="Address in the Denver region, or lat, lon" spellcheck="false" enterkeyhint="search">
+      <button type="submit" class="primary" title="Show every year here">Go</button>
+      <button type="button" id="locate" title="Use my location" aria-label="Use my location">◎</button>
+    </form>
+    <div class="row">
+      <div class="seg" id="sizes" role="group" aria-label="Square width">
         <button type="button" data-side="150" aria-pressed="false">150 ft</button>
         <button type="button" data-side="300" aria-pressed="true">300 ft</button>
         <button type="button" data-side="600" aria-pressed="false">600 ft</button>
         <button type="button" data-side="1200" aria-pressed="false">1200 ft</button>
       </div>
+      <button type="button" id="load-here" class="chip" title="Render the square at the centre of the map">Load at map centre</button>
     </div>
-    <div class="group">
-      <span class="lab">Nudge</span>
-      <div class="seg" id="nudge" role="group" aria-label="Move the window">
-        <button type="button" data-dx="-1" data-dy="0" aria-label="West">←</button>
-        <button type="button" data-dx="0" data-dy="1" aria-label="North">↑</button>
-        <button type="button" data-dx="0" data-dy="-1" aria-label="South">↓</button>
-        <button type="button" data-dx="1" data-dy="0" aria-label="East">→</button>
+    <p id="status" aria-live="polite"></p>
+  </div>
+
+  <div class="panel panel-years">
+    <div class="yearbar">
+      <button type="button" id="year-prev" aria-label="Earlier year">‹</button>
+      <button type="button" id="year-btn" aria-expanded="false" aria-controls="year-menu">Years</button>
+      <button type="button" id="year-next" aria-label="Later year">›</button>
+    </div>
+    <div id="year-src" class="dim"></div>
+    <div id="year-menu" hidden>
+      <div class="rows"></div>
+      <div class="menu-foot">
+        <label>Imagery <input type="range" id="opacity" min="0" max="100" value="100" aria-label="Imagery opacity"></label>
+        <button type="button" id="save-year" disabled>Save PNG</button>
+        <button type="button" id="save-all">Save all years</button>
       </div>
     </div>
-    <div class="group">
-      <button type="button" class="chip" id="cross-toggle" aria-pressed="true">Crosshair</button>
-      <button type="button" class="chip" id="save-all" title="One PNG with every year">Save all years</button>
-    </div>
-    <div class="group scale"><span class="lab">Each square is</span> <b id="scale">300 ft</b> <span class="lab">across</span></div>
   </div>
-
-  <p id="status" aria-live="polite"></p>
-
-  <section id="grid" class="grid" aria-label="Aerial imagery by year"></section>
-
-  <footer class="about">
-    <h2>Where this comes from</h2>
-    <p>The tile index and the archive tiles are the <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, licensed <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 2018 to 2024 stream from DRCOG's mosaics hosted by Sanborn Geospatial; 2004 to 2022 can also be read straight from the raw GeoTIFFs on DRCOG's S3 archive, a few hundred bytes at a time. 2002 (JPEG 2000) and 2008 (MrSID) are offered as downloads. Addresses are placed by the U.S. Census Bureau geocoder, falling back to <a href="https://nominatim.org" rel="noopener">Nominatim</a> © <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap contributors</a>.</p>
-    <p>Every square is the same patch of ground on the same pixel grid (Colorado State Plane Central), so features line up year to year. Older years load slowly on purpose: the browser asks the archive for one image row at a time so nobody has to download a 446 MB file. Source and notes on <a href="https://github.com/jimmylowell/drapp_view" rel="noopener">GitHub</a>. Part of <a href="https://myjimmycloud.com">myjimmycloud.com</a>.</p>
-    <p><span id="cache-note"></span> Rendered squares stay in your browser so a refresh at the same address is instant; nothing leaves your machine. <a href="#" id="clear-cache">Clear the cache</a>.</p>
-  </footer>
 </div>
 
-<dialog id="lightbox" aria-labelledby="lb-title">
-  <div class="lb-head">
-    <div><h2 id="lb-title"></h2><p id="lb-sub"></p></div>
-    <div class="lb-actions">
-      <button type="button" id="lb-prev" aria-label="Earlier year">←</button>
-      <button type="button" id="lb-next" aria-label="Later year">→</button>
-      <a id="lb-save" class="btn" href="#" download>Save PNG</a>
-      <button type="button" id="lb-close" aria-label="Close">✕</button>
-    </div>
-  </div>
-  <div class="lb-frame">
-    <canvas id="big" width="480" height="480"></canvas>
-    <div class="cross" id="lb-cross"></div>
-  </div>
-</dialog>
+<footer class="about" id="about">
+  <h2>Where this comes from</h2>
+  <p>The tile index and the archive tiles are the <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, licensed <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 2018 to 2024 stream from DRCOG's mosaics hosted by Sanborn Geospatial; 2004 to 2016 are read straight from the raw GeoTIFFs on DRCOG's S3 archive, a few hundred bytes at a time, one image row per request, so nobody has to download a 446 MB file. 2002 (JPEG 2000) and 2008 (MrSID) are offered as downloads. The base map is <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a>. Addresses are placed by the U.S. Census Bureau geocoder, falling back to <a href="https://nominatim.org" rel="noopener">Nominatim</a>.</p>
+  <p>Every year is rendered on the same ground square (Colorado State Plane Central) and then warped onto the map, so features line up year to year. Use ← and → to step through loaded years. Source and notes on <a href="https://github.com/jimmylowell/drapp_view" rel="noopener">GitHub</a>. Part of <a href="https://myjimmycloud.com">myjimmycloud.com</a>.</p>
+  <p><span id="cache-note"></span> Rendered squares stay in your browser so a refresh at the same address is instant; nothing leaves your machine. <a href="#" id="clear-cache">Clear the cache</a>.</p>
+</footer>
 
 <script src="js/vendor/proj4.js"></script>
 <script src="js/vendor/geotiff.js"></script>
+<script src="js/vendor/leaflet.js"></script>
 <script src="js/proj.js"></script>
 <script src="js/sources.js"></script>
 <script src="js/tileindex.js"></script>
 <script src="js/imageserver.js"></script>
 <script src="js/tiffwindow.js"></script>
 <script src="js/cache.js"></script>
+<script src="js/warp.js"></script>
 <script src="js/geocode.js"></script>
 <script src="js/app.js"></script>
 </body>

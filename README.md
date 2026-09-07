@@ -17,7 +17,11 @@ compile. `package.json` is dev tooling only (jsdom for the smoke test).
    to Nominatim. Or type `lat, lon`.
 2. **Project** to Colorado State Plane Central, US feet (EPSG:2232) with proj4js, and
    build a square window (150–1200 ft) centred on the point. Every year renders onto
-   the same 480×480 grid, so features line up year to year.
+   the same 512×512 state-plane grid, so features line up year to year, then is warped
+   with one canvas affine onto Web Mercator (`js/warp.js`) and dropped on a Leaflet map
+   over OpenStreetMap tiles. The newest year fades in first; the year menu shows each
+   year's download progress and switches the overlay. Picking a year that is still
+   queued moves it to the front of the queue. ← and → step through loaded years.
 3. **Tile lookup** — DRCOG serves one tile‑index layer per year
    (`gis.drcog.org/server/rest/services/RDC/TIFF_{YEAR}_INDEX/MapServer/0`). An
    envelope query returns the 1–4 tiles touching the window plus their download links.

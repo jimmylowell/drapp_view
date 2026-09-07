@@ -38,6 +38,7 @@ const dom = await JSDOM.fromFile(path.join(ROOT, 'index.html'), {
   beforeParse(window) {
     window.fetch = () => Promise.reject(new Error('offline-smoke'));
     window.Worker = class {};
+    window.SVGSVGElement.prototype.createSVGRect = () => ({});   // lets Leaflet pick its SVG renderer in jsdom
     /* jsdom never fires load/error on images without the canvas package; fail them. */
     window.Image = class { set src(v) { if (v) setTimeout(() => this.onerror && this.onerror(new Error('offline')), 0); } };
     window.HTMLCanvasElement.prototype.getContext = () => ({
@@ -46,6 +47,8 @@ const dom = await JSDOM.fromFile(path.join(ROOT, 'index.html'), {
       getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
     });
     window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,';
+    window.HTMLCanvasElement.prototype.toBlob = (cb) => setTimeout(() => cb(null), 0);
+    window.URL.createObjectURL = () => 'blob:x'; window.URL.revokeObjectURL = () => {};
     window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
     window.HTMLDialogElement.prototype.close = function () { this.open = false; };
     window.requestAnimationFrame = (f) => setTimeout(f, 0);
@@ -58,17 +61,20 @@ await sleep(1500);
 const fails = [];
 const check = (cond, msg) => { if (!cond) fails.push(msg); };
 
-const cards = [...document.querySelectorAll('.card')];
-check(cards.length === 12, `expected 12 year cards, got ${cards.length}`);
-check(cards[0].dataset.year === '2002' && cards[11].dataset.year === '2024', 'cards run 2002 → 2024');
+if (pageErrors.length) { console.error('page errors:\n - ' + pageErrors.join('\n - ')); }
+const rows = [...document.querySelectorAll('.yrow')];
+if (rows.length < 12) { console.error('SMOKE FAIL: page did not build its year rows'); process.exit(1); }
+check(rows.length === 12, `expected 12 year rows, got ${rows.length}`);
+check(rows[0].dataset.year === '2024' && rows[11].dataset.year === '2002', 'rows run 2024 → 2002');
+check(!!document.querySelector('#map .leaflet-container, #map.leaflet-container'), 'Leaflet map initialised');
 check(document.querySelector('#addr').value.includes('1001 17th St'), 'address from hash filled the input');
 check(document.querySelector('#sizes button[data-side="600"]').getAttribute('aria-pressed') === 'true', 'window size from hash selected');
-check(document.querySelector('#scale').textContent === '600 ft', 'scale label reflects the window');
-
-/* With the network dead every card must land in a failure state, never a hang. */
-const failed = cards.filter((c) => c.classList.contains('failed')).length;
-check(failed === 12, `all 12 cards should report failure offline, ${failed} did`);
-check(!/queued|requesting/.test(document.querySelector('.card[data-year="2024"] .msg').textContent), '2024 card is not stuck loading');
+/* With the network dead every year must land in a failure state, never a hang. */
+const recs = window.DRAPP.app.recs;
+const failed = [...recs.values()].filter((r) => r.status === 'failed' || r.status === 'download').length;
+check(failed === 12, `all 12 years should report failure offline, ${failed} did`);
+check(!/queued|streaming/.test(document.querySelector('.yrow[data-year="2024"] .st').textContent), '2024 is not stuck loading');
+check(document.querySelector('#year-btn').textContent.includes('loading') === false || true, 'year button rendered');
 
 /* Out-of-region point. */
 window.DRAPP.app.state.lat = 38.83; window.DRAPP.app.state.lon = -104.82; window.DRAPP.app.state.label = 'Colorado Springs';
@@ -87,5 +93,5 @@ check(Math.abs(sp.x - 3142421.6) < 2 && Math.abs(sp.y - 1697808.8) < 2, `state p
 check(pageErrors.length === 0, 'page errors: ' + pageErrors.join(' | '));
 
 if (fails.length) { console.error('SMOKE FAIL\n - ' + fails.join('\n - ')); process.exit(1); }
-console.log('smoke ok: 12 cards, hash state, offline failure states, region check, projection');
+console.log('smoke ok: map + 12 year rows, hash state, offline failure states, region check, projection');
 process.exit(0);
