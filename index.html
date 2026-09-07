@@ -45,20 +45,27 @@
       <button type="button" id="year-next" aria-label="Later year">›</button>
     </div>
     <div id="year-src" class="dim"></div>
+    <label id="fade" class="fade" hidden>Fade
+      <input type="range" id="opacity" min="0" max="100" value="100" aria-label="Imagery opacity">
+    </label>
     <div id="year-menu" hidden>
       <div class="rows"></div>
       <div class="menu-foot">
-        <label>Imagery <input type="range" id="opacity" min="0" max="100" value="100" aria-label="Imagery opacity"></label>
         <button type="button" id="save-year" disabled>Save PNG</button>
         <button type="button" id="save-all">Save all years</button>
       </div>
     </div>
   </div>
+
+  <div class="panel panel-base">
+    <button type="button" id="base-btn" aria-expanded="false" aria-controls="base-menu" title="Choose the map under the imagery">Base map</button>
+    <div id="base-menu" hidden></div>
+  </div>
 </div>
 
 <footer class="about" id="about">
   <h2>Where this comes from</h2>
-  <p>The tile index and the archive tiles are the <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, licensed <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 2018 to 2024 stream from DRCOG's mosaics hosted by Sanborn Geospatial; 2004 to 2016 are read straight from the raw GeoTIFFs on DRCOG's S3 archive, a few hundred bytes at a time, one image row per request, so nobody has to download a 446 MB file. 2002 (JPEG 2000) and 2008 (MrSID) are offered as downloads. The base map is <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a>. Addresses are placed by the U.S. Census Bureau geocoder, falling back to <a href="https://nominatim.org" rel="noopener">Nominatim</a>.</p>
+  <p>The tile index and the archive tiles are the <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, licensed <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 2018 to 2024 stream from DRCOG's mosaics hosted by Sanborn Geospatial; 2004 to 2016 are read straight from the raw GeoTIFFs on DRCOG's S3 archive, a few hundred bytes at a time, one image row per request, so nobody has to download a 446 MB file. 2002 (JPEG 2000) and 2008 (MrSID) are offered as downloads. The base map under the square is your pick of Bing, Esri world imagery, OpenStreetMap, or a whole DRAPP year — 2018 to 2024 render region-wide from the same mosaics, and <a href="https://livingatlas.arcgis.com/wayback/" rel="noopener">Esri’s World Imagery Wayback</a> has one Esri basemap per year back to 2014. Addresses are placed by the U.S. Census Bureau geocoder, falling back to <a href="https://nominatim.org" rel="noopener">Nominatim</a>.</p>
   <p>Every year is rendered on the same ground square (Colorado State Plane Central) and then warped onto the map, so features line up year to year. Use ← and → to step through loaded years. Source and notes on <a href="https://github.com/jimmylowell/drapp_view" rel="noopener">GitHub</a>. Part of <a href="https://myjimmycloud.com">myjimmycloud.com</a>.</p>
   <p><span id="cache-note"></span> Rendered squares stay in your browser so a refresh at the same address is instant; nothing leaves your machine. <a href="#" id="clear-cache">Clear the cache</a>.</p>
 </footer>
@@ -68,6 +75,7 @@
 <script src="js/vendor/leaflet.js"></script>
 <script src="js/proj.js"></script>
 <script src="js/sources.js"></script>
+<script src="js/basemaps.js"></script>
 <script src="js/tileindex.js"></script>
 <script src="js/imageserver.js"></script>
 <script src="js/tiffwindow.js"></script>

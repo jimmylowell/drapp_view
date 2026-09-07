@@ -59,5 +59,42 @@ for (const p of POINTS) {
   }
 }
 
+/* Base maps. None of these are documented public APIs either, so they get the same
+   treatment: one real tile over downtown Denver, plus the Wayback release list. */
+console.log('\nbase maps');
+const BASE = [
+  ['Bing aerial', 'https://ecn.t0.tiles.virtualearth.net/tiles/a0230102303011.jpeg?g=1'],
+  ['Bing road', 'https://ecn.t0.tiles.virtualearth.net/tiles/r0230102303011.png?g=1'],
+  ['Esri world imagery', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/14/6222/3413'],
+];
+for (const [name, url] of BASE) {
+  try {
+    const [r, ms] = await timed(() => fetch(url));
+    const n = (await r.arrayBuffer()).byteLength;
+    if (r.ok && n > 1000) ok(`${name} ${ms}ms, ${n} bytes`);
+    else bad(`${name} HTTP ${r.status}, ${n} bytes`);
+  } catch (e) { bad(`${name}: ${e.message}`); }
+}
+try {
+  const [cfg, ms] = await timed(async () => (await fetch('https://s3-us-west-2.amazonaws.com/config.maptiles.arcgis.com/waybackconfig.json')).json());
+  const rels = Object.keys(cfg).length;
+  const newest = Object.values(cfg).map((v) => v.itemTitle).sort().pop();
+  if (rels > 50) ok(`Esri Wayback list ${ms}ms, ${rels} releases, newest ${newest}`);
+  else bad(`Esri Wayback list: only ${rels} releases`);
+} catch (e) { bad(`Esri Wayback list: ${e.message}`); }
+
+/* One whole-region DRAPP tile: the same service the square uses, but a Mercator
+   tile box rather than a state-plane window. */
+const T = { xmin: -11689361.8616, ymin: 4816144.2782, xmax: -11686915.8767, ymax: 4818590.2631 };
+for (const [y, svc] of Object.entries(STREAM)) {
+  const url = `${svc}/exportImage?bbox=${T.xmin},${T.ymin},${T.xmax},${T.ymax}&bboxSR=3857&imageSR=3857&size=256,256&format=jpg&f=image`;
+  try {
+    const [r, ms] = await timed(() => fetch(url));
+    const n = (await r.arrayBuffer()).byteLength;
+    if (r.ok && n > 3000) ok(`DRAPP ${y} region-wide tile ${ms}ms, ${n} bytes`);
+    else bad(`DRAPP ${y} region-wide tile HTTP ${r.status}, ${n} bytes`);
+  } catch (e) { bad(`DRAPP ${y} region-wide tile: ${e.message}`); }
+}
+
 console.log(failures ? `\n${failures} problem(s)` : '\nall sources answering');
 process.exit(failures ? 1 : 0);

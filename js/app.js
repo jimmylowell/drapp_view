@@ -1,6 +1,6 @@
-/* Page logic: address → window → one overlay per DRAPP year on an OSM map. */
+/* Page logic: address → window → one overlay per DRAPP year on the base map. */
 (function () {
-  const { proj, sources, tileindex, imageserver, tiffwindow, geocode, cache, warp } = DRAPP;
+  const { proj, sources, tileindex, imageserver, tiffwindow, geocode, cache, warp, basemaps } = DRAPP;
   const PX = 512;                 // state-plane render size
   const PAD = 1.03;               // render a little wider than shown, so the rotated square covers the box
   const SIDES = [150, 300, 600, 1200];
@@ -9,7 +9,7 @@
   let controller = null;          // aborts the in-flight render set
   let queue = [];                 // archive years still to read, front first
   const recs = new Map();         // year → record
-  let map, box, pin;
+  let map, box, pin, base;
 
   const $ = (sel, el = document) => el.querySelector(sel);
   const status = $('#status');
@@ -20,13 +20,13 @@
 
   /* ---------- map ---------- */
   function initMap() {
-    map = L.map('map', { zoomControl: true, maxZoom: 22, zoomSnap: 0.5 }).setView([39.74, -105.0], 10);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 22, maxNativeZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · imagery <a href="https://data.drcog.org">DRCOG DRAPP</a> (CC BY 3.0)',
-    }).addTo(map);
+    map = L.map('map', { zoomControl: false, maxZoom: 22, zoomSnap: 0.5 }).setView([39.74, -105.0], 10);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
     map.attributionControl.setPrefix(false);
+    map.attributionControl.addAttribution(
+      'DRAPP imagery <a href="https://data.drcog.org" rel="noopener">DRCOG</a> (CC BY 3.0)');
     map.createPane('marks').style.zIndex = 450;   // outline and pin above the imagery overlays
+    base = basemaps.init(map, { button: $('#base-btn'), menu: $('#base-menu') });
   }
 
   /* ---------- per-year records + menu rows ---------- */
@@ -141,6 +141,7 @@
       yearBtn.textContent = String(cur);
     }
     $('#year-src').textContent = cur != null ? (recs.get(cur).meta ? recs.get(cur).meta + ' · ' : '') + recs.get(cur).src : '';
+    $('#fade').hidden = cur == null;
     $('#save-year').disabled = cur == null;
   }
 
@@ -459,5 +460,5 @@
   else say('Type an address in the Denver region to see it in every DRAPP year.');
   updateCacheNote();
 
-  DRAPP.app = { state, show, recs, contactSheet, currentYear, map: () => map };
+  DRAPP.app = { state, show, recs, contactSheet, currentYear, map: () => map, base: () => base };
 })();

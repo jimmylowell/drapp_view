@@ -76,6 +76,28 @@ check(failed === 12, `all 12 years should report failure offline, ${failed} did`
 check(!/queued|streaming/.test(document.querySelector('.yrow[data-year="2024"] .st').textContent), '2024 is not stuck loading');
 check(document.querySelector('#year-btn').textContent.includes('loading') === false || true, 'year button rendered');
 
+/* Base map picker: the catalog builds, the default is Bing aerial, and the
+   Wayback group degrades to a note rather than throwing when its list is dead. */
+const base = window.DRAPP.app.base();
+check(base.current() === 'bing-aerial', `default base map should be Bing aerial, got ${base.current()}`);
+check(document.querySelector('#base-btn').textContent === 'Bing aerial', 'base map button names the pick');
+document.querySelector('#base-btn').click();
+await sleep(50);
+const groups = [...document.querySelectorAll('.bgroup')];
+check(groups.length === 4, `expected 4 base map groups, got ${groups.length}`);
+const drappGroup = groups.find((g) => /DRAPP/.test(g.querySelector('h3').textContent));
+check(drappGroup && drappGroup.querySelectorAll('.bpick').length === 4,
+  'the four streamed DRAPP years are offered as whole-region base maps');
+check(/unavailable|loading/.test(groups[2].textContent), 'Wayback group reports its state instead of throwing');
+base.select('drapp-2020');
+check(base.current() === 'drapp-2020', 'picking a DRAPP year switches the base map');
+check(document.querySelector('#base-btn').textContent === 'DRAPP 2020', 'button follows the pick');
+base.select('osm');
+check(window.DRAPP.app.map().getContainer().classList.contains('base-flat'),
+  'road base maps are marked flat so the CSS can knock them back');
+base.select('bing-aerial');
+check(!window.DRAPP.app.map().getContainer().classList.contains('base-flat'), 'aerial base maps are not dimmed');
+
 /* Out-of-region point. */
 window.DRAPP.app.state.lat = 38.83; window.DRAPP.app.state.lon = -104.82; window.DRAPP.app.state.label = 'Colorado Springs';
 window.DRAPP.app.show();
@@ -93,5 +115,5 @@ check(Math.abs(sp.x - 3142421.6) < 2 && Math.abs(sp.y - 1697808.8) < 2, `state p
 check(pageErrors.length === 0, 'page errors: ' + pageErrors.join(' | '));
 
 if (fails.length) { console.error('SMOKE FAIL\n - ' + fails.join('\n - ')); process.exit(1); }
-console.log('smoke ok: map + 12 year rows, hash state, offline failure states, region check, projection');
+console.log('smoke ok: map + 12 year rows, base map picker, hash state, offline failure states, region check, projection');
 process.exit(0);

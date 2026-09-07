@@ -19,8 +19,8 @@ compile. `package.json` is dev tooling only (jsdom for the smoke test).
    build a square window (150–1200 ft) centred on the point. Every year renders onto
    the same 512×512 state-plane grid, so features line up year to year, then is warped
    with one canvas affine onto Web Mercator (`js/warp.js`) and dropped on a Leaflet map
-   over OpenStreetMap tiles. The newest year fades in first; the year menu shows each
-   year's download progress and switches the overlay. Picking a year that is still
+   over the base map of your choice (`js/basemaps.js`, below). The newest year fades
+   in first; the year menu shows each year's download progress and switches the overlay. Picking a year that is still
    queued moves it to the front of the queue. ← and → step through loaded years.
 3. **Tile lookup** — DRCOG serves one tile‑index layer per year
    (`gis.drcog.org/server/rest/services/RDC/TIFF_{YEAR}_INDEX/MapServer/0`). An
@@ -49,6 +49,31 @@ contact sheet of the current address.
 A 300 ft window at 3‑inch resolution costs roughly 500 small requests and about 1 MB
 per archive year, 5–12 s each. Archive years load one at a time so the request stream
 stays polite; changing the address aborts everything in flight.
+
+## Base maps (`js/basemaps.js`)
+
+What sits under the square is a picker in the bottom-left corner, remembered in
+`localStorage`. Bing aerial is the default: the page is about imagery, and a road map
+under an aerial square tells you nothing. Three of the four groups need more than a
+z/x/y template:
+
+- **Bing** (aerial, aerial + labels, road) addresses tiles by quadkey rather than
+  z/x/y — one digit per zoom level naming the quadrant — so it gets its own
+  `getTileUrl` (`ecn.t{0-3}.tiles.virtualearth.net`, no key).
+- **DRAPP, whole region** — the same Sanborn ImageServers that stream 2018–2024 into
+  the square will render any Mercator box, so a whole DRAPP year can sit under it and
+  you can pan around inside one year. They have no tile cache, so every tile is a live
+  `exportImage` call (~0.5 s), clipped by `bounds` to the DRCOG footprint with Bing
+  aerial at half opacity underneath, which is what you see when you pan out of coverage.
+- **Esri imagery by year** — Esri's [World Imagery Wayback](https://livingatlas.arcgis.com/wayback/)
+  keeps every version of its basemap since 2014. The release list is ~100 KB of JSON,
+  so it is fetched the first time the menu is opened, reduced to the last release of
+  each year, and the group shows a note rather than failing if that request dies.
+- **Map** — Bing road, OpenStreetMap, or none. These are the only ones dimmed
+  (`.base-flat`); knocking back an aerial just makes it look broken.
+
+Like the imagery sources, none of these are documented public APIs. If one dies the
+picker keeps working and the rest still draw.
 
 ## Source inventory (verified 2026‑09‑07)
 
@@ -93,6 +118,8 @@ CNAME to `jimmylowell.github.io` in the myjimmycloud.com zone.
 Imagery and tile index: [DRCOG Regional Data Catalog](https://data.drcog.org),
 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). 2018–2024 mosaics hosted by
 Sanborn Geospatial for DRCOG. Geocoding: U.S. Census Bureau; Nominatim ©
-[OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
+[OpenStreetMap contributors](https://www.openstreetmap.org/copyright). Base maps:
+© Microsoft and Earthstar Geographics (Bing); © Esri, Maxar, Earthstar Geographics
+(World Imagery and Wayback); © OpenStreetMap contributors.
 Libraries: [proj4js](https://github.com/proj4js/proj4js) (MIT),
 [geotiff.js](https://github.com/geotiffjs/geotiff.js) (MIT). Site code: MIT.
