@@ -1,6 +1,6 @@
-/* Rendered squares are kept in this browser (IndexedDB) so a refresh at the same
+/* Rendered windows are kept in this browser (IndexedDB) so a refresh at the same
    address paints instantly instead of re-reading the archive. Keyed by year and
-   the exact window. Silently a no-op where IndexedDB is unavailable. */
+   the exact window (pixel size, grid origin). Silently a no-op where IndexedDB is unavailable. */
 (function () {
   const DB = 'drapp-cache', STORE = 'windows', MAX_ENTRIES = 240;   // ~20 addresses × 12 years
   let dbp = null;
@@ -33,7 +33,7 @@
   }
 
   function keyFor(year, win) {
-    return `${year}|${win.side}|${win.px}|${win.xmin.toFixed(2)}|${win.ymin.toFixed(2)}`;
+    return `${year}|${win.res}|${win.px}x${win.py}|${win.xmin.toFixed(2)}|${win.ymin.toFixed(2)}`;
   }
 
   async function get(year, win) {
@@ -48,7 +48,7 @@
   async function put(year, win, canvas, extra) {
     const db = await openDb();
     if (!db) return;
-    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.92));
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.95));   // the master copy: near-lossless
     if (!blob) return;
     try {
       await tx(db, 'readwrite', (s) => s.put({ key: keyFor(year, win), year, blob, at: Date.now(), ...extra }));

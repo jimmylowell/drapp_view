@@ -80,6 +80,24 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
 #year-src { font-size: 12px; padding: 6px 4px 0; }
 #year-src:empty { display: none; }
 #year-menu { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+
+/* ---------- load this view ---------- */
+#view-load { margin-top: 8px; }
+.view-chip { width: 100%; text-align: left; border-color: var(--accent); color: var(--accent); }
+.view-chip:disabled { border-color: var(--line); color: var(--dim); opacity: 1; }
+.view-chip[aria-expanded="true"] { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+#view-panel { border: 1px solid var(--line); border-top: 0; border-radius: 0 0 8px 8px; padding: 8px; }
+#view-desc { margin: 0 0 6px; font-size: 12px; }
+#view-years { max-height: min(40vh, 320px); overflow-y: auto; }
+.vrow { display: flex; align-items: baseline; gap: 8px; padding: 3px 4px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.vrow:hover { background: var(--panel-2); }
+.vrow.off { color: var(--dim); cursor: default; }
+.vrow input { accent-color: var(--accent); margin: 0; align-self: center; }
+.vrow b { min-width: 42px; }
+.vrow em { font-style: normal; font-size: 11.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.view-actions { margin-top: 8px; gap: 6px; }
+.view-actions .primary { flex: 1; text-align: left; font-size: 13px; padding: 7px 10px; }
+.view-note { margin: 8px 0 0; font-size: 11.5px; line-height: 1.35; }
 .rows { max-height: min(60vh, 520px); overflow-y: auto; }
 .yrow { display: flex; align-items: stretch; gap: 4px; }
 .yrow + .yrow { margin-top: 2px; }

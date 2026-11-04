@@ -4,17 +4,20 @@
    - Uncompressed, pixel-interleaved, stripped files (2006, 2012–2022: one row
      per strip, 42 KB a row, no overviews) are read here by hand: for every
      source row the window touches, one Range request for only the byte span of
-     the columns we need. ~2 KB a row instead of 42 KB, and each row is painted
-     as it lands.
+     the columns we need. A few KB a row instead of 42 KB, and each row is
+     painted as it lands. Requests are the distinct source rows touched, so a
+     window rendered coarser than the source costs proportionally fewer.
    - Anything tiled or compressed (2004, 2010) goes through geotiff.js, which
      fetches just the tiles under the window, using an overview level when the
-     window is coarser than full resolution. */
+     window is coarser than full resolution.
+   render() reports what it cost (requests, bytes) so the page can estimate
+   the next one. */
 (function () {
   const CONCURRENCY = 6;
 
   function abortError() { return new DOMException('aborted', 'AbortError'); }
 
-  async function fetchRange(url, start, end, signal, attempt = 0) {
+  async function fetchRange(url, start, end, signal, tally, attempt = 0) {
     try {
       /* no-store: Chrome serialises concurrent requests for one URL through its
          HTTP cache lock, which turns six parallel row reads into one at a time. */
@@ -24,11 +27,13 @@
         e.permanent = r.status >= 400 && r.status < 500;
         throw e;
       }
-      return new Uint8Array(await r.arrayBuffer());
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      if (tally) { tally.requests++; tally.bytes += bytes.length; }
+      return bytes;
     } catch (e) {
       if (e.name === 'AbortError' || e.permanent || attempt >= 2) throw e;
       await new Promise((res) => setTimeout(res, 300 * (attempt + 1)));
-      return fetchRange(url, start, end, signal, attempt + 1);
+      return fetchRange(url, start, end, signal, tally, attempt + 1);
     }
   }
 
@@ -41,8 +46,8 @@
     return { dx: Math.abs(A), dy: Math.abs(E), x0: C - A / 2, y0: F - E / 2 };
   }
 
-  async function open(tile, signal) {
-    await fetchRange(tile.image, 0, 0, signal);   // surfaces a 404 with a clear message before geotiff.js hides it
+  async function open(tile, signal, tally) {
+    await fetchRange(tile.image, 0, 0, signal, tally);   // surfaces a 404 with a clear message before geotiff.js hides it
     const tiff = await GeoTIFF.fromUrl(tile.image, { allowFullFile: false, blockSize: 65536, cacheSize: 400 }, signal);
     const img = await tiff.getImage(0);
     const fd = img.fileDirectory;
@@ -66,11 +71,11 @@
   }
 
   /* Hand-rolled row reads for the simple layout. */
-  async function renderStripped(t, win, imgData, signal, onRow) {
-    const N = win.px, p = win.res, spp = t.spp;
-    const cols = new Int32Array(N);
+  async function renderStripped(t, win, imgData, signal, onRow, tally) {
+    const { px: W, py: H, res: p } = win, spp = t.spp;
+    const cols = new Int32Array(W);
     let cmin = Infinity, cmax = -Infinity;
-    for (let i = 0; i < N; i++) {
+    for (let i = 0; i < W; i++) {
       const c = Math.floor((win.xmin + (i + 0.5) * p - t.x0) / t.dx);
       cols[i] = c >= 0 && c < t.W ? c : -1;
       if (cols[i] >= 0) { cmin = Math.min(cmin, c); cmax = Math.max(cmax, c); }
@@ -78,7 +83,7 @@
     if (cmin === Infinity) return 0;
 
     const bySrc = new Map();                    // source row → output rows
-    for (let j = 0; j < N; j++) {
+    for (let j = 0; j < H; j++) {
       const r = Math.floor((t.y0 - (win.ymax - (j + 0.5) * p)) / t.dy);
       if (r < 0 || r >= t.H) continue;
       if (!bySrc.has(r)) bySrc.set(r, []);
@@ -96,11 +101,11 @@
         const r = queue.shift();
         const strip = Math.floor(r / rps);
         const base = Number(offs[strip]) + (r - strip * rps) * rowBytes;
-        const bytes = await fetchRange(t.url, base + cmin * spp, base + (cmax + 1) * spp - 1, signal);
+        const bytes = await fetchRange(t.url, base + cmin * spp, base + (cmax + 1) * spp - 1, signal, tally);
         const d = imgData.data;
         for (const j of bySrc.get(r)) {
-          let o = j * N * 4;
-          for (let i = 0; i < N; i++, o += 4) {
+          let o = j * W * 4;
+          for (let i = 0; i < W; i++, o += 4) {
             const c = cols[i];
             if (c < 0) continue;
             const k = (c - cmin) * spp;
@@ -117,7 +122,7 @@
 
   /* geotiff.js path: pick the coarsest overview still at least as fine as the
      window, read the covering pixel block, nearest-neighbour into the canvas. */
-  async function renderTiled(t, win, imgData, signal) {
+  async function renderTiled(t, win, imgData, signal, tally) {
     const count = await t.tiff.getImageCount();
     let best = t.img, dx = t.dx, dy = t.dy;
     for (let k = 1; k < count; k++) {
@@ -131,8 +136,9 @@
     const r0 = clamp(Math.floor((t.y0 - win.ymax) / dy), 0, H), r1 = clamp(Math.ceil((t.y0 - win.ymin) / dy), 0, H);
     if (c1 <= c0 || r1 <= r0) return 0;
     const ras = await best.readRasters({ window: [c0, r0, c1, r1], interleave: true, samples: [0, 1, 2], signal });
+    if (tally) { tally.requests += Math.ceil((c1 - c0) / 128) * Math.ceil((r1 - r0) / 128) / 4; tally.bytes += ras.length; }
     const w = c1 - c0, h = r1 - r0, N = win.px, p = win.res, d = imgData.data;
-    for (let j = 0; j < N; j++) {
+    for (let j = 0; j < win.py; j++) {
       const r = Math.floor((t.y0 - (win.ymax - (j + 0.5) * p)) / dy) - r0;
       if (r < 0 || r >= h) continue;
       for (let i = 0; i < N; i++) {
@@ -151,7 +157,8 @@
     const usable = tiles.filter((x) => x.kind === 'tif' && x.image);
     if (!usable.length) throw new Error('no GeoTIFF covers this spot');
     const ctx = canvas.getContext('2d');
-    const imgData = ctx.createImageData(win.px, win.px);
+    const imgData = ctx.createImageData(win.px, win.py);
+    const tally = { requests: 0, bytes: 0 };
     let raf = 0;
     const paint = () => {
       if (raf) return;
@@ -160,24 +167,24 @@
     let n = 0, mode = '';
     for (const tile of usable) {
       onProgress(n / usable.length, 'opening tile ' + tile.tile);
-      const t = await open(tile, signal);
+      const t = await open(tile, signal, tally);
       if (t.stripped && t.uncompressed && t.chunky && t.eightBit) {
         mode = 'rows';
         await renderStripped(t, win, imgData, signal, (f) => {
           onProgress((n + f) / usable.length, `reading rows from ${tile.tile}`);
           paint();
-        });
+        }, tally);
       } else {
         mode = 'tiles';
         onProgress((n + 0.1) / usable.length, `reading tiles from ${tile.tile}`);
-        await renderTiled(t, win, imgData, signal);
+        await renderTiled(t, win, imgData, signal, tally);
         paint();
       }
       n++;
     }
     if (raf) cancelAnimationFrame(raf);
     ctx.putImageData(imgData, 0, 0);
-    return { tiles: usable.length, mode };
+    return { tiles: usable.length, mode, ...tally };
   }
 
   DRAPP.tiffwindow = { render };

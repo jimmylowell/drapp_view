@@ -2,7 +2,7 @@
 /* Dev tool: render one year's window from the archive tiles in Node, no browser,
    and write it as a PPM next to the streamed version of the same window for
    comparison. Exercises tiffwindow.js exactly as the page does.
-   Run: node scripts/render_node.mjs <year> <lat> <lon> [sideFt] [outdir] */
+   Run: node scripts/render_node.mjs <year> <lat> <lon> [sideFt] [outdir]   (RES=0.25 for source pixels) */
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -28,10 +28,11 @@ const ctx = {
 };
 const canvas = { getContext: () => ctx };
 
-const PX = +(process.env.PX || 480);   // PX=1024 to measure what a sharper render costs
+const RES = +(process.env.RES || 0.5);   // ft a pixel; RES=0.25 is DRAPP's own grid
 const sp = proj.toStatePlane(+lon, +lat);
-const win = proj.windowFor(sp.x, sp.y, +side, PX);
-console.log(`window ${side} ft at state plane ${sp.x.toFixed(1)}, ${sp.y.toFixed(1)}`);
+const win = proj.windowFor(sp.x, sp.y, +side, +side, RES);
+const PX = win.px;
+console.log(`window ${win.w} ft at state plane ${win.xmin}, ${win.ymin}, ${win.px}×${win.py} px at ${win.res} ft`);
 
 const t0 = Date.now();
 const tiles = await tileindex.tilesFor(+year, win);
@@ -41,7 +42,7 @@ const out = await tiffwindow.render(tiles, win, canvas, new AbortController().si
   const pct = Math.floor(f * 10);
   if (pct !== last) { last = pct; process.stdout.write(`\r  ${Math.round(f * 100)}% ${note}          `); }
 });
-console.log(`\nrendered via ${out.mode} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+console.log(`\nrendered via ${out.mode} in ${((Date.now() - t0) / 1000).toFixed(1)}s: ${out.requests} requests, ${(out.bytes / 1e6).toFixed(2)} MB`);
 
 function ppm(file, data) {
   const rgb = Buffer.alloc(PX * PX * 3);
@@ -55,7 +56,7 @@ console.log('wrote', base + '_archive.ppm');
 
 const stream = sources.SOURCES[year] && sources.SOURCES[year].stream;
 if (stream) {
-  const url = `${stream}/exportImage?bbox=${win.xmin},${win.ymin},${win.xmax},${win.ymax}&bboxSR=2232&imageSR=2232&size=${PX},${PX}&format=jpg&f=image`;
+  const url = `${stream}/exportImage?bbox=${win.xmin},${win.ymin},${win.xmax},${win.ymax}&bboxSR=2232&imageSR=2232&size=${win.px},${win.py}&format=jpg&compressionQuality=95&f=image`;
   const r = await fetch(url);
   fs.writeFileSync(base + '_stream.jpg', Buffer.from(await r.arrayBuffer()));
   console.log('wrote', base + '_stream.jpg');

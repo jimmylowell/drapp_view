@@ -96,5 +96,30 @@ for (const [y, svc] of Object.entries(STREAM)) {
   } catch (e) { bad(`DRAPP ${y} region-wide tile: ${e.message}`); }
 }
 
+/* Other agencies' services, one state-plane export each at a point they cover.
+   These are what carry the page past 2002 (and 2024). A flat answer means the
+   service is up but has no pixels there, which is also worth knowing. */
+console.log('\nother agencies');
+const SP = (x, y, h = 150) => `${x - h},${y - h},${x + h},${y + h}`;
+const OTHERS = [
+  ['Arapahoe 2026', `https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer/export?bbox=${SP(3187911, 1691254)}&bboxSR=2232&imageSR=2232&size=256,256&layers=show:0&format=jpg&f=image`],
+  ['Arapahoe 1998', `https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer/export?bbox=${SP(3187911, 1691254)}&bboxSR=2232&imageSR=2232&size=256,256&layers=show:14&format=jpg&f=image`],
+  ['Boulder 1977', `https://maps.bouldercounty.org/arcgis/rest/services/RASTER/AERIAL1977_1FT/MapServer/export?bbox=${SP(3064287, 1794685)}&bboxSR=2232&imageSR=2232&size=256,256&format=jpg&f=image`],
+  ['Boulder 2000', `https://maps.bouldercounty.org/arcgis/rest/services/RASTER/color2000/MapServer/export?bbox=${SP(3064287, 1794685)}&bboxSR=2232&imageSR=2232&size=256,256&format=jpg&f=image`],
+  ['DPL 1933 King tile', 'https://tiles.arcgis.com/tiles/44C95LOqZjbh8Row/arcgis/rest/services/Denver_1933_Aerial/MapServer/tile/17/49740/27309'],
+  ['CDOT Golden 1930 tile', 'https://tiles.arcgis.com/tiles/yzB9WM8W0BO3Ql7d/arcgis/rest/services/Golden_1930_Aerial/MapServer/tile/17/49743/27232'],
+  ['CDOT Englewood 1953 tile', 'https://tiles.arcgis.com/tiles/yzB9WM8W0BO3Ql7d/arcgis/rest/services/Englewood_and_Littleton_1953_Aerial/MapServer/tile/17/49810/27317'],
+  ['SMFR 1960s tile', 'https://tiles.arcgis.com/tiles/sszu6VPfua0T2iye/arcgis/rest/services/HIstorical_Aerial_Imagery___1960_69_WTL1/MapServer/tile/16/24910/13676'],
+];
+for (const [name, url] of OTHERS) {
+  try {
+    const [r, ms] = await timed(() => fetch(url, { headers: { Origin: 'https://drapp.myjimmycloud.com' } }));
+    const n = (await r.arrayBuffer()).byteLength;
+    const cors = r.headers.get('access-control-allow-origin');
+    if (r.ok && n > 3000 && cors) ok(`${name} ${ms}ms, ${n} bytes, CORS ${cors}`);
+    else bad(`${name} HTTP ${r.status}, ${n} bytes, CORS ${cors}`);
+  } catch (e) { bad(`${name}: ${e.message}`); }
+}
+
 console.log(failures ? `\n${failures} problem(s)` : '\nall sources answering');
 process.exit(failures ? 1 : 0);

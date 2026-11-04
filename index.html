@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Denver Aerials — every DRAPP year at your address</title>
-<meta name="description" content="Type a Denver-area address and see it in every year of DRCOG's Denver Regional Aerial Photography Project, 2002 to today, read straight from the public archive in your browser.">
+<meta name="description" content="Type a Denver-area address and see it in every year of DRCOG's Denver Regional Aerial Photography Project, 2002 to today, read straight from the public archive in your browser — and further back where a county, CDOT or the Denver Public Library has a flight: 2000, 1998, 1977, 1953, 1933, 1930.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231d2a36'/%3E%3Cpath d='M6 22 14 10l5 7 3-4 4 9z' fill='%23e8c36a'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="js/vendor/leaflet.css">
 <link rel="stylesheet" href="css/site.css">
@@ -13,7 +13,7 @@
 
 <header class="masthead">
   <h1>Denver Aerials</h1>
-  <p>Every year of the <a href="https://drcog.org/data-maps-modeling/data-acquisition-projects" rel="noopener">Denver Regional Aerial Photography Project</a> at one address, read from DRCOG's public archive in your browser. <a href="#about">How it works</a></p>
+  <p>Every year of the <a href="https://drcog.org/data-maps-modeling/data-acquisition-projects" rel="noopener">Denver Regional Aerial Photography Project</a> at one address, read from DRCOG's public archive in your browser — and back to 1930 where a county, a fire district, CDOT or the Denver Public Library has an older flight online. <a href="#about">How it works</a></p>
 </header>
 
 <div id="stage">
@@ -45,6 +45,20 @@
       <button type="button" id="year-next" aria-label="Later year">›</button>
     </div>
     <div id="year-src" class="dim"></div>
+    <div id="view-load" hidden>
+      <button type="button" id="view-chip" class="chip view-chip" aria-expanded="false" aria-controls="view-panel">Load this view…</button>
+      <div id="view-panel" hidden>
+        <p id="view-desc" class="dim"></p>
+        <div id="view-years"></div>
+        <div class="row view-actions">
+          <button type="button" id="view-go" class="primary">Load</button>
+          <button type="button" id="view-all" class="chip">All</button>
+          <button type="button" id="view-none" class="chip">None</button>
+          <button type="button" id="view-dismiss" class="chip">Not now</button>
+        </div>
+        <p class="dim view-note">Nothing is fetched until you say so. Archive years cost one request per image row; a wide view at 3 in is thousands of them.</p>
+      </div>
+    </div>
     <label id="fade" class="fade" hidden>Fade
       <input type="range" id="opacity" min="0" max="100" value="100" aria-label="Imagery opacity">
     </label>
@@ -65,8 +79,9 @@
 
 <footer class="about" id="about">
   <h2>Where this comes from</h2>
-  <p>The tile index and the archive tiles are the <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, licensed <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 2018 to 2024 stream from DRCOG's mosaics hosted by Sanborn Geospatial; 2004 to 2016 are read straight from the raw GeoTIFFs on DRCOG's S3 archive, a few hundred bytes at a time, one image row per request, so nobody has to download a 446 MB file. 2002 (JPEG 2000) and 2008 (MrSID) are offered as downloads. The base map under the square is your pick of Bing, Esri world imagery, OpenStreetMap, or a whole DRAPP year — 2018 to 2024 render region-wide from the same mosaics, and <a href="https://livingatlas.arcgis.com/wayback/" rel="noopener">Esri’s World Imagery Wayback</a> has one Esri basemap per year back to 2014. Addresses are placed by the U.S. Census Bureau geocoder, falling back to <a href="https://nominatim.org" rel="noopener">Nominatim</a>.</p>
-  <p>Every year is rendered on the same ground square (Colorado State Plane Central) and then warped onto the map, so features line up year to year. Use ← and → to step through loaded years. Source and notes on <a href="https://github.com/jimmylowell/drapp_view" rel="noopener">GitHub</a>. Part of <a href="https://myjimmycloud.com">myjimmycloud.com</a>.</p>
+  <p>The tile index and the archive tiles are the <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, licensed <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 2018 to 2024 stream from DRCOG's mosaics hosted by Sanborn Geospatial; 2004 to 2016 are read straight from the raw GeoTIFFs on DRCOG's S3 archive, a few hundred bytes at a time, one image row per request, so nobody has to download a 446 MB file. 2002 (JPEG 2000) and 2008 (MrSID) are offered as downloads, except inside Arapahoe County, where the county's own service fills them in. The base map under the square is your pick of Bing, Esri world imagery, OpenStreetMap, or a whole DRAPP year — 2018 to 2024 render region-wide from the same mosaics, and <a href="https://livingatlas.arcgis.com/wayback/" rel="noopener">Esri’s World Imagery Wayback</a> has one Esri basemap per year back to 2014. Addresses are placed by the U.S. Census Bureau geocoder, falling back to <a href="https://nominatim.org" rel="noopener">Nominatim</a>.</p>
+  <p>Before DRAPP there is no regional programme, so the older years come from whoever flew them and cover only their own ground: <a href="https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer" rel="noopener">Arapahoe County</a> (2026, 2000, and a black-and-white 1998), <a href="https://maps.bouldercounty.org/arcgis/rest/services/RASTER" rel="noopener">Boulder County</a> (2000 and a 1 ft black-and-white 1977), South Metro Fire Rescue's decade-by-decade scans of its district from the 1950s to the 1990s, CDOT's scans of Golden in 1930, Boulder in 1948 and Englewood–Littleton in 1953, and the <a href="https://history.denverlibrary.org/maps/time-travelers/" rel="noopener">Denver Public Library</a>'s georeferenced 1933 King aerial survey of central Denver. Outside their footprints those years simply say so.</p>
+  <p>Every year is rendered on the same ground square (Colorado State Plane Central) and then warped onto the map, so features line up year to year — the county services draw onto that grid themselves, and the library's Web Mercator tiles are mosaicked and warped onto it here. Use ← and → to step through loaded years. Source and notes on <a href="https://github.com/jimmylowell/drapp_view" rel="noopener">GitHub</a>. Part of <a href="https://myjimmycloud.com">myjimmycloud.com</a>.</p>
   <p><span id="cache-note"></span> Rendered squares stay in your browser so a refresh at the same address is instant; nothing leaves your machine. <a href="#" id="clear-cache">Clear the cache</a>.</p>
 </footer>
 
@@ -78,9 +93,12 @@
 <script src="js/basemaps.js"></script>
 <script src="js/tileindex.js"></script>
 <script src="js/imageserver.js"></script>
+<script src="js/xyz.js"></script>
+<script src="js/providers.js"></script>
 <script src="js/tiffwindow.js"></script>
 <script src="js/cache.js"></script>
 <script src="js/warp.js"></script>
+<script src="js/estimate.js"></script>
 <script src="js/geocode.js"></script>
 <script src="js/app.js"></script>
 </body>
