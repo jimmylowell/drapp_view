@@ -61,22 +61,51 @@
     } catch (e) { /* tainted canvas — better a white tile than a broken layer */ }
   }
 
+  const dpr = () => Math.min(3, window.devicePixelRatio || 1);
+  const FT = 0.3048;
+  const DENVER_COS = Math.cos(39.74 * Math.PI / 180);
+  /* Image pixels for one tile `sz` Mercator metres wide whose middle sits at
+     Mercator y `my`: the device pixels it lands on, but never finer on the
+     ground than `nativeFt`. */
+  function tilePx(ts, sz, my, nativeFt) {
+    let px = Math.round(ts * dpr());
+    if (nativeFt) {
+      const cos = Math.cos(2 * Math.atan(Math.exp(my / 6378137)) - Math.PI / 2);
+      px = Math.min(px, Math.ceil(sz * cos / (nativeFt * FT)));
+    }
+    return Math.max(64, Math.min(4096, px));
+  }
+  /* The tile zoom where a device pixel first reaches `nativeFt` on the ground
+     at Denver's latitude; past it Leaflet stretches tiles it already has. */
+  const nativeZoom = (nativeFt) =>
+    Math.ceil(Math.log2(2 * R * DENVER_COS / (256 * nativeFt * FT * dpr())) - 1e-9);
+
   /* An ArcGIS service rendered one tile at a time. ImageServer takes
      exportImage; the county MapServers take export plus the layer to show —
      one dynamic layer per flight, so the year IS the layer. Neither has a tile
      cache here, so a tile is a live render (0.2-0.5s measured), and the
      tiles are 512 px: the same pixels in a quarter of the requests, which is
      the cheaper shape for a server that pays per export. */
+  /* Each tile is asked at the screen's own density: a 512 px tile on a phone
+     (device scale 2) is drawn on 1024 device pixels, so it asks for 1024 —
+     until that would be finer than the source (`nativeFt`, 3 in for DRAPP),
+     where the size stops growing and `maxNativeZoom` has Leaflet stretch the
+     finest tiles instead of asking again for the same pixels. Before
+     2026-11-06 a tile asked for its CSS size, so on a phone every streamed
+     tile came in at half the screen's density: 6 in at the Capitol opening
+     zoom, 3 in only past zoom 20.6. */
   const ArcGISLayer = L.TileLayer.extend({
     getTileUrl(coords) {
       const ts = this.getTileSize().x;
       const n = 2 ** coords.z * 256 / ts, sz = 2 * R / n;
       const xmin = -R + coords.x * sz, ymax = R - coords.y * sz;
+      const px = tilePx(ts, sz, ymax - sz / 2, this.options.nativeFt);
       const q = new URLSearchParams({
         bbox: [xmin, ymax - sz, xmin + sz, ymax].join(','),
         bboxSR: '3857', imageSR: '3857',
-        size: `${ts},${ts}`, format: 'jpg', f: 'image',
+        size: `${px},${px}`, format: 'jpg', f: 'image',
       });
+      if (this.options.quality) q.set('compressionQuality', String(this.options.quality));
       const op = this.options.layer === undefined ? 'exportImage' : 'export';
       if (this.options.layer != null) q.set('layers', 'show:' + this.options.layer);
       return `${this._url}/${op}?${q}`;
@@ -118,21 +147,31 @@
      keep: it is read off sources.js, so a year added there turns up here.
      A year can have more than one — 2000 is Arapahoe and Boulder, two counties
      that do not touch — and they simply stack. */
+  /* A streamed DRAPP year (2018–2024) as tiles, region-wide, 3 in at the
+     finest. The base map and the year on show (js/app.js) both use it; the
+     year on show passes its own pane and JPEG quality 95 (js/imageserver.js
+     says why). */
+  function streamLayer(year, opts) {
+    const src = DRAPP.sources.SOURCES[year];
+    return new ArcGISLayer(src.stream, Object.assign({
+      bounds: regionBounds(), attribution: DRCOG_CREDIT, regionWide: true,
+      maxZoom: 22, minZoom: 9, crossOrigin: 'anonymous', tileSize: 512,
+      nativeFt: DRAPP.proj.GRID, maxNativeZoom: nativeZoom(DRAPP.proj.GRID),
+    }, opts));
+  }
+
   function serviceLayers(year) {
     const src = DRAPP.sources.SOURCES[year], out = [];
     const common = { maxZoom: 22, minZoom: 9, crossOrigin: 'anonymous' };
     const live = { tileSize: 512 };
-    if (src.stream) {
-      out.push(new ArcGISLayer(src.stream, Object.assign({
-        bounds: regionBounds(), attribution: DRCOG_CREDIT, regionWide: true,
-      }, common, live)));
-    }
+    if (src.stream) out.push(streamLayer(year));
     for (const p of src.providers || []) {
       const o = Object.assign({
         bounds: L.latLngBounds([p.cover[0], p.cover[1]], [p.cover[2], p.cover[3]]),
         attribution: `<a href="${p.home}" rel="noopener">${p.credit}</a>`,
       }, common);
-      if (p.kind === 'map') out.push(new ArcGISLayer(p.service, Object.assign({ layer: p.layer }, o, live)));
+      const ft = p.res / 12;
+      if (p.kind === 'map') out.push(new ArcGISLayer(p.service, Object.assign({ layer: p.layer, nativeFt: ft, maxNativeZoom: nativeZoom(ft) }, o, live)));
       else if (p.kind === 'xyz') out.push(L.tileLayer(p.url, Object.assign({ maxNativeZoom: p.maxZoom }, o)));
     }
     return out;
@@ -330,5 +369,5 @@
     return { select, current: () => currentId, item: () => find(currentId) };
   }
 
-  window.DRAPP = Object.assign(window.DRAPP || {}, { basemaps: { init, CATALOG } });
+  window.DRAPP = Object.assign(window.DRAPP || {}, { basemaps: { init, CATALOG, streamLayer, tilePx, nativeZoom } });
 })();
