@@ -18,6 +18,7 @@
 
 <div id="stage">
   <div id="map" aria-label="Map"></div>
+  <div id="ov-badge" role="status" aria-live="polite" hidden><b></b> <span></span><i class="pbar" hidden><i></i></i></div>
 
   <div class="panel panel-addr">
     <form id="addr-form" class="addrbar" autocomplete="off">
@@ -27,13 +28,15 @@
       <button type="button" id="locate" title="Use my location" aria-label="Use my location">◎</button>
     </form>
     <div class="row">
-      <div class="seg" id="sizes" role="group" aria-label="Square width">
-        <button type="button" data-side="150" aria-pressed="false">150 ft</button>
-        <button type="button" data-side="300" aria-pressed="true">300 ft</button>
-        <button type="button" data-side="600" aria-pressed="false">600 ft</button>
-        <button type="button" data-side="1200" aria-pressed="false">1200 ft</button>
+      <span class="seg-label" id="sizes-label">Every year, in a square</span>
+      <div class="seg" id="sizes" role="group" aria-labelledby="sizes-label">
+        <button type="button" data-side="150" aria-pressed="false" title="Load every year for a square 150 ft across around the address">150 ft</button>
+        <button type="button" data-side="300" aria-pressed="true" title="Load every year for a square 300 ft across around the address">300 ft</button>
+        <button type="button" data-side="600" aria-pressed="false" title="Load every year for a square 600 ft across around the address">600 ft</button>
+        <button type="button" data-side="1200" aria-pressed="false" title="Load every year for a square 1200 ft across around the address">1200 ft</button>
       </div>
-      <button type="button" id="load-here" class="chip" title="Render the square at the centre of the map">Load at map centre</button>
+      <span class="dim seg-note">across</span>
+      <button type="button" id="load-here" class="chip" title="Load the square at the centre of the map instead of an address">Square at map centre</button>
     </div>
     <p id="status" aria-live="polite"></p>
   </div>
@@ -41,7 +44,7 @@
   <div class="panel panel-years">
     <div class="yearbar">
       <button type="button" id="year-prev" aria-label="Earlier year">‹</button>
-      <button type="button" id="year-btn" aria-expanded="false" aria-controls="year-menu">Years</button>
+      <button type="button" id="year-btn" aria-expanded="false" aria-controls="year-menu" title="Pick the year to show">Year</button>
       <button type="button" id="year-next" aria-label="Later year">›</button>
     </div>
     <div id="year-src" class="dim"></div>

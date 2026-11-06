@@ -136,13 +136,14 @@
     rec.st.textContent = text;
     rec.bar.parentElement.hidden = frac == null;
     if (frac != null) rec.bar.style.width = Math.round(frac * 100) + '%';
-    if (status !== 'loading') paintButton();
+    rec.frac = frac;
+    if (status !== 'loading') paintButton(); else paintBadge();
   }
 
   function resetRec(rec) {
     rec.canvas.getContext('2d').clearRect(0, 0, rec.canvas.width, rec.canvas.height);
     if (rec.overlay) { map.removeLayer(rec.overlay); rec.overlay = null; }
-    rec.win = null; rec.rect = null; rec.ovW = 0;
+    rec.win = null; rec.rect = null; rec.ovW = 0; rec.preview = false;
     rec.src = ''; rec.meta = ''; rec.credit = ''; rec.tiles = []; rec.indexError = '';
     rec.files.innerHTML = '<li class="dim">looking up tiles…</li>';
     setStatus(rec, 'queued', 'queued', null);
@@ -253,19 +254,65 @@
     const want = state.selected;
     for (const rec of recs.values()) rec.pick.setAttribute('aria-pressed', String(rec.year === (want ?? cur)));
     if (cur == null) {
-      yearBtn.textContent = state.load == null ? 'Years' : (want ? `${sources.label(want)} · loading…` : 'loading…');
+      yearBtn.textContent = state.load == null ? 'Year' : (want ? `Year ${sources.label(want)} · loading…` : 'Year · loading…');
     } else if (want != null && want !== cur) {
       const r = recs.get(want);
-      yearBtn.textContent = `${sources.label(cur)} · ${sources.label(want)} ${r.status === 'failed' || r.status === 'download' ? 'unavailable' : 'loading…'}`;
+      yearBtn.textContent = `Year ${sources.label(cur)} · ${sources.label(want)} ${r.status === 'failed' || r.status === 'download' ? 'unavailable' : 'loading…'}`;
     } else {
-      yearBtn.textContent = sources.label(cur);
+      yearBtn.textContent = 'Year ' + sources.label(cur);
     }
+    paintBadge();
     const r = cur != null ? recs.get(cur) : null;
     $('#year-src').textContent = r ? [r.meta, r.win ? `${r.win.w.toFixed(0)}×${r.win.h.toFixed(0)} ft at ${resLabel(r.win.res)}` : '', r.src].filter(Boolean).join(' · ') : '';
     $('#fade').hidden = cur == null;
     $('#save-year').disabled = cur == null;
   }
   const resLabel = (res) => res < 1 ? `${Math.round(res * 12)} in` : `${+res.toFixed(2)} ft`;
+
+  /* The label on the map: which year is on screen, how sharp, from where —
+     and, while a year is still coming, that what shows meanwhile is the base
+     map or a blurry preview. Jimmy, 2026-11-05: "Need a better way to tell
+     what layer I'm looking at when they're loading." */
+  const badge = $('#ov-badge');
+  const shortSrc = (rec) => rec.src.startsWith(sources.STREAM_LABEL) ? 'DRCOG mosaic'
+    : rec.src.startsWith(sources.ARCHIVE_LABEL) ? 'DRCOG archive' : (rec.credit || rec.src.replace(/\s*\(.*$/, ''));
+  const pending = (rec) => rec.status === 'failed' || rec.status === 'download' ? 'not available here' : (rec.st.textContent || 'loading…');
+  function paintBadge() {
+    if (state.load == null) { badge.hidden = true; return; }
+    const cur = currentYear(), want = state.selected;
+    const b = $('b', badge), s = $('span', badge), bar = $('.pbar', badge);
+    let frac = null;
+    if (cur == null) {
+      const year = want ?? [...sources.YEARS].reverse().find((y) => ['loading', 'queued'].includes(recs.get(y).status));
+      if (year == null) { badge.hidden = true; return; }
+      const r = recs.get(year);
+      b.textContent = sources.label(year);
+      s.textContent = `${pending(r)} — the base map shows meanwhile`;
+      frac = r.status === 'loading' ? r.frac : null;
+    } else {
+      const r = recs.get(cur);
+      b.textContent = sources.label(cur);
+      const here = r.preview
+        ? `blurry preview, ${resLabel(r.win.res)} on its way`
+        : [r.win ? `${resLabel(r.win.res)} a pixel` : '', shortSrc(r)].filter(Boolean).join(' · ');
+      if (want != null && want !== cur) {
+        const w = recs.get(want);
+        s.textContent = `${here}. ${sources.label(want)}: ${pending(w)}`;
+        frac = w.status === 'loading' ? w.frac : null;
+      } else s.textContent = here;
+    }
+    bar.hidden = frac == null;
+    if (frac != null) $('i', bar).style.width = Math.round(frac * 100) + '%';
+    badge.hidden = false;
+  }
+  /* Sit just under the address panel, whatever its height on this screen. */
+  function placeBadge() {
+    const p = $('.panel-addr').getBoundingClientRect(), st = $('#stage').getBoundingClientRect();
+    badge.style.top = Math.round(p.bottom - st.top + 8) + 'px';
+  }
+  if (window.ResizeObserver) new ResizeObserver(placeBadge).observe($('.panel-addr'));
+  window.addEventListener('resize', placeBadge);
+  placeBadge();
 
   function closeMenu() { menu.hidden = true; yearBtn.setAttribute('aria-expanded', 'false'); }
 
@@ -394,14 +441,47 @@
     const fallbacks = [], toCache = [];
     const streamed = todo.filter((y) => sources.SOURCES[y].stream).map(async (year) => {
       const rec = recs.get(year);
-      setStatus(rec, 'loading', 'streaming…', null);
+      setStatus(rec, 'loading', `streaming the ${resLabel(winOf(year).res)} image…`, null);
       const w = winOf(year);
+      const service = sources.SOURCES[year].stream;
       try {
-        await imageserver.render(sources.SOURCES[year].stream, prep(rec, w), rec.canvas, signal);
-        finish(rec, w, sources.STREAM_LABEL);
+        prep(rec, w);
+        let sharp = false;
+        const full = imageserver.render(service, w, rec.canvas, signal).finally(() => { sharp = true; });
+        /* The sharp image is one JPEG of up to 2048² (a few seconds on a phone)
+           and shows nothing until all of it is in. A window 4× coarser — a
+           sixteenth of the pixels, a few dozen KB — arrives first and holds the
+           place, so the year is on screen at once and sharpens when the full
+           one lands. Skipped for small windows, where the full one is quick. */
+        if (w.px * w.py > 600 * 600) {
+          const pw = proj.rewindow(w, w.res * 4);
+          const tmp = document.createElement('canvas');
+          tmp.width = pw.px; tmp.height = pw.py;
+          imageserver.render(service, pw, tmp, signal).then(() => {
+            if (sharp || signal.aborted) return;
+            const ctx = rec.canvas.getContext('2d');
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(tmp, (pw.xmin - w.xmin) / w.res, (w.ymax - pw.ymax) / w.res, pw.w / w.res, pw.h / w.res);
+            rec.preview = true;
+            finish(rec, w, sources.STREAM_LABEL, '· preview');
+            rec.st.textContent = 'blurry preview, sharpening…';
+          }, () => { /* the full request decides success */ });
+        }
+        await full;
+        if (rec.preview && rec.overlay) {
+          rec.preview = false;
+          rec.src = sources.STREAM_LABEL;
+          rec.ovW = 0;
+          fitDensity(rec, currentYear() !== rec.year);
+          setStatus(rec, 'ready', readyText(rec), null);
+        } else {
+          finish(rec, w, sources.STREAM_LABEL);
+        }
         toCache.push(year);
       } catch (e) {
         if (e.name === 'AbortError') return;
+        if (rec.overlay) { map.removeLayer(rec.overlay); rec.overlay = null; }   // a preview with no sharp image behind it
+        rec.preview = false;
         if (sources.SOURCES[year].archive === 'tif') {
           setStatus(rec, 'queued', 'service failed, will read archive', null);
           fallbacks.push(year);
@@ -685,6 +765,7 @@
   function go(lat, lon, label) {
     state.lat = lat; state.lon = lon; state.label = label;
     input.value = label;
+    paintSizes();
     writeHash();
     show();
   }
@@ -718,12 +799,18 @@
   });
 
   const sizeBtns = [...document.querySelectorAll('#sizes button')];
-  function paintSizes() { for (const b of sizeBtns) b.setAttribute('aria-pressed', String(+b.dataset.side === state.side)); }
+  /* No size looks chosen until a square is on the map (the opening view is
+     the screen's own window, not a square). */
+  function paintSizes() { for (const b of sizeBtns) b.setAttribute('aria-pressed', String(state.lat != null && +b.dataset.side === state.side)); }
   for (const b of sizeBtns) {
     b.addEventListener('click', () => {
       state.side = +b.dataset.side;
-      paintSizes();
-      if (state.lat != null) { writeHash(); show(); }
+      if (state.lat != null) { paintSizes(); writeHash(); show(); return; }
+      /* No address yet (the opening view): the square goes at the map centre,
+         rather than the button doing nothing. */
+      const c = map.getCenter();
+      const atHome = c.distanceTo([CAPITOL.lat, CAPITOL.lon]) < 30;
+      go(atHome ? CAPITOL.lat : c.lat, atHome ? CAPITOL.lon : c.lng, atHome ? CAPITOL.label : `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`);
     });
   }
 
