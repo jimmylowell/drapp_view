@@ -1,9 +1,9 @@
 # Handoff
 
-**State.** On branch `reckon/todo-234e959f` (PR #2). Opening view: the Colorado State Capitol at 3 in, 2024 only. A label on the map says which year is on screen, how sharp, from where, what is loading, and which base map is under it. Since the third commit: zooming into a streamed year (2018–2024) that loaded coarser than the screen wants fetches just the spot on screen again at the screen's density (3 in fully zoomed) and lays it over the coarse image (`sharpen()` in `js/app.js`); the label says "coarser than the source, zoom in for 3 in" when it is. Findings and measurements in [docs/loading.md](docs/loading.md). Smoke test passes; checked in headless Chrome at 390 px, no console errors.
+**State.** On branch `reckon/todo-234e959f` (PR #2). Since 2026-11-06 the streamed years (2018, 2020, 2022, 2024) are tiles at the map's own zoom, asked at the screen's density, 3 in at the finest (`streamLayer()` in `js/basemaps.js`, `showTiles()` in `js/app.js`); the square sizes, the blurry preview and the spot sharpening are gone. "Every year here" (was "Square at map centre") and an address load the older years for the view on screen, at 3 in near the 3-inch zoom. Opening view: the Capitol at zoom 19.5 with 2024. Measurements and the base-map table in [docs/loading.md](docs/loading.md). Smoke test passes; checked in headless Chrome at 390 px: every 2018–2024 year at 3 in zoomed all the way in, no console errors.
 
-**Decided.** Load one year on the opening view, not every year. Archive years (2004–2016) are not sharpened automatically: a request per source row; the "Load this view" tap stays their way in. The sharpened patch is kept per year and dropped by a new square or view.
+**Decided.** Streamed years are tiles, never a window: detail follows the zoom alone (Jimmy, 2026-11-06: the ft buttons "was a way to select the detail. I never really figured that out"). Archive years stay windows for the view, because each image row is a request; "Load this view" stays their way in after a pan. A streamed year's picture for Save PNG is one request for the view on screen.
 
-**Next.** Jimmy tries it on the phone and merges the PR; the site is GitHub Pages on `main`, so the merge is the deploy.
+**Next.** Merge, then `wrangler pages deploy` to Cloudflare Pages project `drapp` (drapp.myjimmycloud.com is a direct upload since 2026-11-06; GitHub Pages no longer serves it).
 
-**Open.** None.
+**Open.** `README.md` still describes the 150–1200 ft square (lines 23 and 100–112); it is Jimmy's to reword. The base map under a streamed year is the same year's tiles again (492 KB of 1.7 MB at the opening view); hiding it under a streamed year would save that, at the cost of a bare edge outside the region.

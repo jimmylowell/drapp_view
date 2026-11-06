@@ -39,6 +39,10 @@ a { color: var(--accent); }
 .leaflet-control-zoom { margin: 0 12px 12px 0 !important; }
 .leaflet-bottom .leaflet-control-attribution { margin: 0 !important; }
 .drapp-ov { transition: opacity 0.7s ease; }
+/* A streamed year's tiles are stretched past their native zoom; at a
+   fractional scale Leaflet leaves a hairline between them where the base map
+   shows through. Half a pixel of overlap closes it. */
+.leaflet-years-pane img.leaflet-tile { width: 512.5px !important; height: 512.5px !important; }
 
 .panel {
   position: absolute; z-index: 1000; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);

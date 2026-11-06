@@ -97,7 +97,11 @@
       .map(([lon, lat]) => proj.toStatePlane(lon, lat));
     const xmin = Math.min(...pts.map((p) => p.x)), xmax = Math.max(...pts.map((p) => p.x));
     const ymin = Math.min(...pts.map((p) => p.y)), ymax = Math.max(...pts.map((p) => p.y));
-    let res = proj.snapRes(atRes || Math.max(SRC_RES, deviceRes()));
+    /* The screen's pixel snaps up to the next grid step, so a phone at the
+       3-inch zoom (3.2 in a device pixel) would read at 6 in; anything under
+       1.5 times the source's pixel takes the source's own 3 in instead. */
+    const dev = deviceRes();
+    let res = proj.snapRes(atRes || (dev < 1.5 * SRC_RES ? SRC_RES : dev));
     while ((xmax - xmin) / res > CAP_VIEW || (ymax - ymin) / res > CAP_VIEW) res = proj.snapRes(res * 2);
     return proj.windowBox(xmin, ymin, xmax, ymax, res);
   }
@@ -604,7 +608,7 @@
       throw e;
     }
     if (!signal.aborted) {
-      say(`${o.label} — ${years.length === sources.YEARS.length ? 'all years' : years.length === 1 ? sources.label(years[0]) : years.length + ' years'} loaded.`);
+      say(`${o.label} — ${years.length === sources.YEARS.filter((y) => !tiled(y)).length ? 'every year here' :years.length === 1 ? sources.label(years[0]) : years.length + ' years'} loaded.`);
       updateCacheNote();
       scheduleViewCheck();
     }
