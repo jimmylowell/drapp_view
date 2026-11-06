@@ -175,7 +175,7 @@
   const yearName = (year) => {
     const src = DRAPP.sources.SOURCES[year];
     const who = src.stream ? 'DRCOG' : [...new Set((src.providers || []).map((p) => p.credit))].join(', ');
-    return { id: 'y' + year, name: String(year), note: who, make: servedYear(year) };
+    return { id: 'y' + year, name: String(year), note: who, plain: `${year} photos from ${who}, as map tiles`, make: servedYear(year) };
   };
 
   const CATALOG = [
@@ -184,6 +184,7 @@
       items: [
         {
           id: 'newest', name: 'Newest available', note: 'sharpest here',
+          plain: 'the newest DRCOG photos, as map tiles (coarser when zoomed out)',
           make: newestAvailable,
         },
         { id: 'bing-aerial', name: 'Bing aerial', note: 'current, worldwide', make: bing('a', 'jpeg') },
@@ -268,6 +269,7 @@
       map.getContainer().classList.toggle('base-flat', !!item.flat);
       try { localStorage.setItem(KEY, item.id); } catch (e) { /* private mode */ }
       paint();
+      if (els.onChange) els.onChange(item);
     }
 
     function paint() {
@@ -325,7 +327,7 @@
     select(saved && find(saved) ? saved : 'newest');
     close();
 
-    return { select, current: () => currentId };
+    return { select, current: () => currentId, item: () => find(currentId) };
   }
 
   window.DRAPP = Object.assign(window.DRAPP || {}, { basemaps: { init, CATALOG } });

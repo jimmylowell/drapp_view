@@ -100,6 +100,16 @@ const r = P.rewindow(w, 1);
 check(r.res === 1 && r.px >= 300 && r.px <= 301 && r.xmin <= w.xmin && r.xmax >= w.xmax && r.xmin % 1 === 0, 'a coarser sibling window covers the same ground on its own grid');
 check(window.DRAPP.app.covers(w, w) && !window.DRAPP.app.covers(w, P.windowFor(3142421.6 + 200, 1697808.8, 300, 300, 0.25)), 'coverage: a window covers itself, not a view centred outside it');
 check(!window.DRAPP.app.covers(P.rewindow(w, 1), w), 'a 1 ft window does not serve a 3 in view');
+/* Sharpening: the spot on screen inside a coarse window, at the screen's density. */
+const A = window.DRAPP.app;
+const coarse = P.windowFor(3142421.6, 1697808.8, 4000, 4000, 1);
+const spot = P.windowFor(3142421.6 + 100, 1697808.8, 200, 400, 0.25);
+const c = A.clip(coarse, spot);
+check(c && c.res === 0.25 && c.xmin >= coarse.xmin && c.xmax <= coarse.xmax && Math.abs(c.w - spot.w) <= 0.5, `the spot inside a coarse window clips to the spot at 3 in: ${JSON.stringify(c)}`);
+check(A.over(coarse, spot) && !A.covers(coarse, spot), 'a 1 ft window is under a 3 in view but does not serve it');
+check(A.clip(coarse, P.windowFor(3142421.6 + 9000, 1697808.8, 200, 200, 0.25)) === null, 'a spot outside the window clips to nothing');
+check(A.srcResOf(2024) === 0.25 && A.srcResOf(2022) === 0.25 && A.srcResOf(2004) === 1, `source pixel sizes: 2024 ${A.srcResOf(2024)}, 2004 ${A.srcResOf(2004)}`);
+check(window.DRAPP.app.base().item().plain.includes('newest DRCOG photos'), 'the label can name the base map in plain words');
 /* The estimate: an archive year at 3 in over a 300 ft square is one request a row. */
 const E = window.DRAPP.estimate;
 const idxTiles = [{ kind: 'tif', image: 'x', bbox: { xmin: 3141392, ymin: 1695032, xmax: 3144032, ymax: 1700312 } }];

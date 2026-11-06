@@ -56,8 +56,12 @@
     map.attributionControl.addAttribution(
       'DRAPP imagery <a href="https://data.drcog.org" rel="noopener">DRCOG</a> (CC BY 3.0)');
     map.createPane('marks').style.zIndex = 450;   // outline and pin above the imagery overlays
-    base = basemaps.init(map, { button: $('#base-btn'), menu: $('#base-menu') });
-    map.on('zoomend', () => { const cur = currentYear(); if (cur != null) fitDensity(recs.get(cur)); scheduleViewCheck(); });
+    base = basemaps.init(map, { button: $('#base-btn'), menu: $('#base-menu'), onChange: () => paintBadge() });
+    map.on('zoomend', () => {
+      const cur = currentYear();
+      if (cur != null) { fitDensity(recs.get(cur)); if (recs.get(cur).detail) fitDensity(recs.get(cur).detail); }
+      scheduleViewCheck();
+    });
     map.on('moveend resize', scheduleViewCheck);
   }
 
@@ -99,13 +103,32 @@
   /* Does window `w` serve view `v`: centre inside, at least half the area,
      and not much coarser than the screen (when finer exists). */
   function covers(w, v) {
+    if (!over(w, v)) return false;
+    if (w.res > SRC_RES && w.res >= 1.5 * v.res) return false;
+    return true;
+  }
+  /* Window `w` is under the view: its centre and at least half its area. */
+  function over(w, v) {
     if (!w) return false;
     if (v.cx < w.xmin || v.cx > w.xmax || v.cy < w.ymin || v.cy > w.ymax) return false;
     const ix = Math.max(0, Math.min(w.xmax, v.xmax) - Math.max(w.xmin, v.xmin));
     const iy = Math.max(0, Math.min(w.ymax, v.ymax) - Math.max(w.ymin, v.ymin));
-    if (ix * iy < 0.5 * v.w * v.h) return false;
-    if (w.res > SRC_RES && w.res >= 1.5 * v.res) return false;
-    return true;
+    return ix * iy >= 0.5 * v.w * v.h;
+  }
+  /* The part of view `v` inside window `w`, on the grid at the view's density. */
+  function clip(w, v) {
+    const xmin = Math.max(w.xmin, v.xmin), xmax = Math.min(w.xmax, v.xmax);
+    const ymin = Math.max(w.ymin, v.ymin), ymax = Math.min(w.ymax, v.ymax);
+    if (xmax <= xmin || ymax <= ymin) return null;
+    return proj.windowBox(xmin, ymin, xmax, ymax, v.res);
+  }
+  /* The finest pixel a year's source has here, in feet, or null if unknown. */
+  function srcResOf(year, lat, lon) {
+    const src = sources.SOURCES[year];
+    if (src.layout) return src.layout.res;
+    if (src.stream) return SRC_RES;
+    const here = (src.providers || []).filter((p) => lat == null || providers.covers(p, lat, lon));
+    return here.length ? Math.min(...here.map((p) => p.res / 12)) : null;
   }
 
   /* ---------- per-year records + menu rows ---------- */
@@ -143,6 +166,7 @@
   function resetRec(rec) {
     rec.canvas.getContext('2d').clearRect(0, 0, rec.canvas.width, rec.canvas.height);
     if (rec.overlay) { map.removeLayer(rec.overlay); rec.overlay = null; }
+    dropDetail(rec);
     rec.win = null; rec.rect = null; rec.ovW = 0; rec.preview = false;
     rec.src = ''; rec.meta = ''; rec.credit = ''; rec.tiles = []; rec.indexError = '';
     rec.files.innerHTML = '<li class="dim">looking up tiles…</li>';
@@ -238,13 +262,21 @@
     for (const rec of recs.values()) {
       if (!rec.overlay) continue;
       rec.overlay.setOpacity(rec.year === cur ? state.opacity : 0);
-      if (rec.year === cur) { fitDensity(rec); rec.overlay.bringToFront(); }
+      if (rec.detail) rec.detail.overlay.setOpacity(rec.year === cur ? state.opacity : 0);
+      if (rec.year === cur) {
+        fitDensity(rec); rec.overlay.bringToFront();
+        if (rec.detail) { fitDensity(rec.detail); rec.detail.overlay.bringToFront(); }
+      }
     }
     /* Once the crossfade is over, shrink whatever is no longer on show. */
     clearTimeout(demoteTimer);
     demoteTimer = setTimeout(() => {
       const now = currentYear();
-      for (const rec of recs.values()) if (rec.year !== now && rec.ovW > OV_IDLE) fitDensity(rec, true);
+      for (const rec of recs.values()) {
+        if (rec.year === now) continue;
+        if (rec.ovW > OV_IDLE) fitDensity(rec, true);
+        if (rec.detail && rec.detail.ovW > OV_IDLE) fitDensity(rec.detail, true);
+      }
     }, 900);
     paintButton();
     scheduleViewCheck();
@@ -292,9 +324,7 @@
     } else {
       const r = recs.get(cur);
       b.textContent = sources.label(cur);
-      const here = r.preview
-        ? `blurry preview, ${resLabel(r.win.res)} on its way`
-        : [r.win ? `${resLabel(r.win.res)} a pixel` : '', shortSrc(r)].filter(Boolean).join(' · ');
+      const here = r.preview ? `blurry preview, ${resLabel(r.win.res)} on its way` : sharpness(r);
       if (want != null && want !== cur) {
         const w = recs.get(want);
         s.textContent = `${here}. ${sources.label(want)}: ${pending(w)}`;
@@ -303,7 +333,30 @@
     }
     bar.hidden = frac == null;
     if (frac != null) $('i', bar).style.width = Math.round(frac * 100) + '%';
+    const it = base && base.item();
+    $('small', badge).textContent = it ? `Base map underneath: ${it.plain || it.name}` : '';
     badge.hidden = false;
+  }
+
+  /* "1 ft a pixel · DRCOG mosaic — coarser than the source, zoom in for 3 in":
+     the pixel size at the middle of the screen, where it came from, and,
+     when it is coarser than the source holds here, how to get the source's own
+     pixels. Jimmy, 2026-11-05: "Can you explain to me if drap is downloading
+     lower resolutions at all? That would not be ideal as the entire point is
+     to show the crazy detail of these aerial images". */
+  function sharpness(r) {
+    if (!r.win) return shortSrc(r);
+    const vw = map ? viewWindow() : r.win;
+    const patch = r.detail && over(r.detail.win, vw);
+    const res = patch ? r.detail.win.res : r.win.res;
+    let s = `${resLabel(res)} a pixel · ${shortSrc(r)}${patch ? ', sharpened for this spot' : ''}`;
+    const l = state.load || {};
+    const finest = srcResOf(r.year, l.lat, l.lon);
+    if (r.sharpening) s += ` — fetching this spot at ${resLabel(r.sharpening.res)}…`;
+    else if (finest && res > finest * 1.01) {
+      s += ` — coarser than the source, zoom in${sources.SOURCES[r.year].stream ? '' : ' and load this view'} for ${resLabel(finest)}`;
+    }
+    return s;
   }
   /* Sit just under the address panel, whatever its height on this screen. */
   function placeBadge() {
@@ -386,6 +439,7 @@
   /* Render `years` for the base window. o: {lat, lon, label, archiveRes, fit}. */
   async function load(base, years, o) {
     if (controller) controller.abort();
+    stopSharpen();
     controller = new AbortController();
     const { signal } = controller;
     const { lat, lon } = o;
@@ -593,6 +647,65 @@
     return load(base, sources.YEARS, { lat: state.lat, lon: state.lon, label: `${state.label} · ${state.side} ft square`, archiveRes: squareRes(state.side, CAP_ARCHIVE), fit: true });
   }
 
+  /* ---------- sharpening a coarse year in place ---------- */
+  /* A wide view, or a 600 or 1200 ft square on a phone, loads coarser than
+     3 in: a loaded window is at most CAP_VIEW (or the square's ceiling)
+     pixels a side. Zoom in on it and the screen wants finer pixels than it
+     holds, so a streamed year is asked again for just the spot on screen, at
+     the screen's density (3 in once zoomed all the way in), and that patch is
+     laid over the coarse image: one request, like the first. Archive years
+     cost a request per source row, so for them the "Load this view" prompt
+     stays the way in. The patch is kept per year, so flipping years and back
+     does not fetch it again; a new square or view drops it. */
+  let sharpCtl = null;
+  function dropDetail(rec) {
+    if (rec.detail && rec.detail.overlay) map.removeLayer(rec.detail.overlay);
+    rec.detail = null; rec.sharpening = null; rec.sharpFailed = null;
+  }
+  function stopSharpen() {
+    if (sharpCtl) sharpCtl.abort();
+    sharpCtl = null;
+    for (const r of recs.values()) r.sharpening = null;
+  }
+  const sameAsk = (w, vw) => w && w.res === vw.res && over(w, vw);
+
+  function wantSharper(rec, vw) {
+    if (rec.status !== 'ready' || rec.preview || !rec.overlay || !rec.win || !sources.SOURCES[rec.year].stream) return false;
+    if (vw.w > VIEW_MAX_FT || !over(rec.win, vw)) return false;
+    if (sameAsk(rec.sharpening, vw) || sameAsk(rec.sharpFailed, vw)) return false;
+    const have = rec.detail && over(rec.detail.win, vw) ? rec.detail.win.res : rec.win.res;
+    return have > SRC_RES && have >= 1.5 * vw.res;
+  }
+
+  function sharpen(rec, vw) {
+    const w = clip(rec.win, vw);
+    if (!w) return;
+    stopSharpen();
+    sharpCtl = new AbortController();
+    const { signal } = sharpCtl;
+    rec.sharpening = w;
+    paintBadge();
+    const canvas = document.createElement('canvas');
+    canvas.width = w.px; canvas.height = w.py;
+    imageserver.render(sources.SOURCES[rec.year].stream, w, canvas, signal).then(() => {
+      if (signal.aborted) return;
+      rec.sharpening = null;
+      const old = rec.detail;
+      const d = { win: w, canvas, rect: warp.mercRect(w), ovCanvas: document.createElement('canvas'), ovW: 0 };
+      d.overlay = new warp.CanvasOverlay(d.ovCanvas, warp.bounds(d.rect), { opacity: 0, className: 'drapp-ov', interactive: false, zIndex: 401 });
+      rec.detail = d;
+      fitDensity(d, currentYear() !== rec.year);
+      d.overlay.addTo(map);
+      if (old && old.overlay) map.removeLayer(old.overlay);
+      showBest();
+    }, (e) => {
+      if (e.name === 'AbortError') return;
+      rec.sharpening = null;
+      rec.sharpFailed = w;     // not asked again for this same spot and zoom
+      paintBadge();
+    });
+  }
+
   /* ---------- load this view ---------- */
   const view = {
     el: $('#view-load'), chip: $('#view-chip'), panel: $('#view-panel'), desc: $('#view-desc'),
@@ -605,7 +718,7 @@
 
   function scheduleViewCheck() {
     clearTimeout(viewTimer);
-    viewTimer = setTimeout(viewCheck, 250);
+    viewTimer = setTimeout(() => { viewCheck(); paintBadge(); }, 250);
   }
   function hideView() { view.el.hidden = true; viewWin = null; }
 
@@ -616,7 +729,8 @@
     const vw = viewWindow();
     const year = state.selected ?? currentYear();
     const rec = year != null ? recs.get(year) : null;
-    if (rec && covers(rec.win, vw)) return hideView();
+    if (rec && wantSharper(rec, vw)) { sharpen(rec, vw); return hideView(); }
+    if (rec && (covers(rec.win, vw) || (rec.sharpening && over(rec.sharpening, vw)) || (rec.detail && covers(rec.detail.win, vw)))) return hideView();
     if (dismissedWin && covers(dismissedWin, vw) && covers(vw, dismissedWin)) return hideView();
     viewWin = vw;
     if (!viewSel.size) viewSel.add(year ?? newestLoadable(vw));
@@ -930,5 +1044,5 @@
   else openHome();
   updateCacheNote();
 
-  DRAPP.app = { state, show, load, recs, contactSheet, currentYear, squareRes, viewWindow, covers, map: () => map, base: () => base };
+  DRAPP.app = { state, show, load, recs, contactSheet, currentYear, squareRes, viewWindow, covers, over, clip, srcResOf, map: () => map, base: () => base };
 })();
