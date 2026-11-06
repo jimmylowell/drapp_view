@@ -73,25 +73,40 @@ check(window.DRAPP.providers.covers(window.DRAPP.sources.SOURCES[1933].providers
 check(!window.DRAPP.providers.covers(window.DRAPP.sources.SOURCES[1977].providers[0], 39.7482, -104.9935), 'downtown Denver is outside the Boulder 1977 coverage');
 check(!!document.querySelector('#map .leaflet-container, #map.leaflet-container'), 'Leaflet map initialised');
 check(document.querySelector('#addr').value.includes('1001 17th St'), 'address from hash filled the input');
-check(document.querySelector('#sizes button[data-side="600"]').getAttribute('aria-pressed') === 'true', 'window size from hash selected');
-/* With the network dead every year must land in a failure state, never a hang. */
+check(!document.querySelector('#sizes'), 'the square-size buttons are gone');
+check(/Every year here/.test(document.querySelector('#load-here').textContent), 'the centre button loads every year for the view');
+/* With the network dead every window year must land in a failure state,
+   never a hang; streamed years are tile layers and stay pickable. */
 const recs = window.DRAPP.app.recs;
-const failed = [...recs.values()].filter((r) => r.status === 'failed' || r.status === 'download').length;
-check(failed === N, `all ${N} years should report failure offline, ${failed} did`);
+const S0 = window.DRAPP.sources;
+const streamed = [...recs.values()].filter((r) => S0.SOURCES[r.year].stream);
+check(streamed.map((r) => r.year).sort().join() === '2018,2020,2022,2024', `streamed years are 2018–2024, got ${streamed.map((r) => r.year)}`);
+check(streamed.every((r) => r.tiled && r.status === 'ready' && !r.win), 'streamed years are tiles, with no window loaded');
+const failed = [...recs.values()].filter((r) => !r.tiled && (r.status === 'failed' || r.status === 'download')).length;
+check(failed === N - streamed.length, `all ${N - streamed.length} window years should report failure offline, ${failed} did`);
 check(/only Boulder County/.test(document.querySelector('.yrow[data-year="1977"] .st').textContent), 'a year that does not cover the point says which county it is for');
-check(!/queued|streaming/.test(document.querySelector('.yrow[data-year="2024"] .st').textContent), '2024 is not stuck loading');
+const lay = recs.get(2024).layer;
+const M = window.DRAPP.app.map();
+check(lay && M.hasLayer(lay) && lay.options.pane === 'years', '2024 is on the map as its own tile layer');
+check(lay.options.maxZoom === 22 && lay.options.nativeFt === 0.25, 'the year layer goes to zoom 22 and stops sharpening at 3 in');
+check(/exportImage\?/.test(lay.getTileUrl({ x: 213000, y: 388000, z: 20 })) && /compressionQuality=95/.test(lay.getTileUrl({ x: 213000, y: 388000, z: 20 })), 'a year tile is an exportImage call at quality 95');
+check(!/streaming|preview/.test(document.querySelector('#ov-badge').textContent), 'no blurry preview or streaming wait in the label');
 check(document.querySelector('#year-btn').textContent.includes('loading') === false || true, 'year button rendered');
 
-/* Render size: source pixels, screen pixels, path ceiling — coarsest wins,
-   snapped to DRAPP's 0.25 ft grid, and a 150 or 300 ft square always gets
-   the source's own pixels whatever the screen. */
-const res = (side, cap, screen = 1720) => window.DRAPP.app.squareRes(side, cap, screen);
-check(res(150, 4096) === 0.25, `150 ft should render at 3 in, got ${res(150, 4096)}`);
-check(res(300, 2048) === 0.25, `300 ft should render at 3 in, got ${res(300, 2048)}`);
-check(res(300, 2048, 700) === 0.25, `300 ft stays at 3 in on a small screen, got ${res(300, 2048, 700)}`);
-check(res(1200, 1280) === 1, `the archive ceiling coarsens a big square to 1 ft, got ${res(1200, 1280)}`);
-check(res(1200, 4096) === 0.75, `a big square is capped by the screen, got ${res(1200, 4096)}`);
-check(res(1200, 4096, 800) === 1, `a smaller screen asks for less, got ${res(1200, 4096, 800)}`);
+/* Tile density: a tile is asked at the screen's density, never finer on the
+   ground than the source. At Denver a 512 px tile at zoom 20 is ~76 m of
+   Mercator, ~59 m of ground: 3 in is ~772 px, so dpr 1 asks 512 (4.5 in) and
+   dpr 2 would ask 1024 but stops at 772; at zoom 21 the tile is half that
+   ground and stops at ~386, the source's own 3 in. */
+const B = window.DRAPP.basemaps;
+const sz20 = 2 * 20037508.342789244 / (2 ** 20 * 256 / 512), myDenver = 4828000;
+const px20 = B.tilePx(512, sz20, myDenver, 0.25), px21 = B.tilePx(512, sz20 / 2, myDenver, 0.25);
+check(px20 === 512, `zoom 20 at dpr 1 asks for 512 px, got ${px20}`);
+check(px21 >= 380 && px21 <= 392, `zoom 21 stops at the source pixel (~386 px), got ${px21}`);
+check(B.tilePx(512, sz20, myDenver) === 512 && B.tilePx(512, sz20, myDenver, 1) < 200, 'a coarser source asks for fewer pixels');
+check(B.nativeZoom(0.25) === 21, `at dpr 1 the tiles stop sharpening at zoom 21, got ${B.nativeZoom(0.25)}`);
+const tr = window.DRAPP.app.tileRes(recs.get(2024).layer);
+check(tr >= 0.24 && tr < 1, `the label reads the tile pixel at the opening zoom: ${tr}`);
 const P = window.DRAPP.proj;
 const w = P.windowFor(3142421.6, 1697808.8, 300, 300, 0.25);
 check(w.xmin % 0.25 === 0 && w.ymax % 0.25 === 0 && w.px === 1200 && w.py === 1200 && w.res === 0.25, `window snaps to the grid: ${JSON.stringify(w)}`);
@@ -100,6 +115,16 @@ const r = P.rewindow(w, 1);
 check(r.res === 1 && r.px >= 300 && r.px <= 301 && r.xmin <= w.xmin && r.xmax >= w.xmax && r.xmin % 1 === 0, 'a coarser sibling window covers the same ground on its own grid');
 check(window.DRAPP.app.covers(w, w) && !window.DRAPP.app.covers(w, P.windowFor(3142421.6 + 200, 1697808.8, 300, 300, 0.25)), 'coverage: a window covers itself, not a view centred outside it');
 check(!window.DRAPP.app.covers(P.rewindow(w, 1), w), 'a 1 ft window does not serve a 3 in view');
+/* Sharpening: the spot on screen inside a coarse window, at the screen's density. */
+const A = window.DRAPP.app;
+const coarse = P.windowFor(3142421.6, 1697808.8, 4000, 4000, 1);
+const spot = P.windowFor(3142421.6 + 100, 1697808.8, 200, 400, 0.25);
+const c = A.clip(coarse, spot);
+check(c && c.res === 0.25 && c.xmin >= coarse.xmin && c.xmax <= coarse.xmax && Math.abs(c.w - spot.w) <= 0.5, `the spot inside a coarse window clips to the spot at 3 in: ${JSON.stringify(c)}`);
+check(A.over(coarse, spot) && !A.covers(coarse, spot), 'a 1 ft window is under a 3 in view but does not serve it');
+check(A.clip(coarse, P.windowFor(3142421.6 + 9000, 1697808.8, 200, 200, 0.25)) === null, 'a spot outside the window clips to nothing');
+check(A.srcResOf(2024) === 0.25 && A.srcResOf(2022) === 0.25 && A.srcResOf(2004) === 1, `source pixel sizes: 2024 ${A.srcResOf(2024)}, 2004 ${A.srcResOf(2004)}`);
+check(window.DRAPP.app.base().item().plain.includes('newest DRCOG photos'), 'the label can name the base map in plain words');
 /* The estimate: an archive year at 3 in over a 300 ft square is one request a row. */
 const E = window.DRAPP.estimate;
 const idxTiles = [{ kind: 'tif', image: 'x', bbox: { xmin: 3141392, ymin: 1695032, xmax: 3144032, ymax: 1700312 } }];

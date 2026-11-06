@@ -69,6 +69,9 @@ contact sheet of the current address.
 
 ## Render size and sharpness
 
+What arrives in what order, the blurry preview a streamed year shows first, and the
+label on the map that says which year is on screen: [docs/loading.md](docs/loading.md).
+
 DRAPP's resolution is the point of the page, so three things keep the source pixels
 intact from the archive to the screen (all measured 2026‑09‑07 on the 2022 mosaic
 downtown, Laplacian variance of the luminance as the sharpness number):

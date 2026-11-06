@@ -1,40 +1,41 @@
-/* Page logic: address → window → one overlay per year on the base map, and
-   "load this view" for anything past the first square.
+/* Page logic: the year on show over the base map, and "load this view" for
+   the years that cost a request per image row.
 
-   Two ways in, one loader:
-     - An address renders a square (150–1200 ft) in every year: the reasonable
-       first download, newest year first, then back through the archive.
-     - Panning or zooming away from what is loaded raises a prompt with the
-       cost of the current map view per year (js/estimate.js); nothing past
-       the square is fetched until the user picks years and says go. That is
-       what keeps a curious pan from turning into thousands of range requests
-       against DRCOG's bucket.
+   Two kinds of year (2026-11-06; Jimmy: "I still don't understand why
+   download a lower res version at all?"):
+     - Streamed years (2018–2024) are tiles, like any web map: DRCOG's
+       mosaic is asked for each tile at the map's own zoom and the screen's
+       density, 3 in a pixel at the finest (js/basemaps.js, streamLayer). No
+       square, no coarse copy, nothing to tap: zoom in and the pixels follow.
+     - Every other year is a window read for the view on screen: older DRAPP
+       years from the raw GeoTIFFs, one range request per image row, and the
+       county and library flights from their own services. An address, or
+       "Every year here", loads them for the view; after a pan, "Load this
+       view" shows the cost per year and nothing is fetched until it is
+       tapped. That is what keeps a curious pan from turning into thousands of
+       range requests against DRCOG's bucket.
 
-   Resolution: every window sits on DRAPP's 3-inch grid (js/proj.js) so the
+   Resolution of a window: it sits on DRAPP's 3-inch grid (js/proj.js) so the
    source pixels arrive untouched, and the map overlay is re-warped from the
    lossless state-plane canvas at the screen's own pixel density whenever the
-   zoom changes (js/warp.js) — the pixels you see at any zoom are one resample
-   from the source. */
+   zoom changes (js/warp.js). */
 (function () {
   const { proj, sources, tileindex, imageserver, tiffwindow, geocode, cache, warp, basemaps, providers, estimate } = DRAPP;
   const SRC_RES = proj.GRID;       // 0.25 ft: DRAPP's finest ground sample
-  /* The automatic square is rendered no coarser than the source and no finer
-     than the screen, with a per-path ceiling because the paths cost
-     differently: the ImageServer is one request whatever the size (refuses
-     past 4096); the archive is one range request per source row. 150 and
-     300 ft squares always get the source's own pixels — the resolution is the
-     thing you came to see — so the screen ceiling never drops below 1200. */
-  const CAP_STREAM = 2048, CAP_ARCHIVE = 1280, PX_FLOOR = 1200;
+  /* An archive window loaded without asking (an address, "Every year here")
+     is at most this many pixels a side; a phone's view at 3 in fits. Past it
+     the window is coarser and the label says to zoom in and load the view. */
+  const CAP_ARCHIVE = 2048;
   const CAP_VIEW = 4096;           // a loaded view is at most this many pixels a side; coarser past that
   const VIEW_MAX_FT = 10560;       // 2 miles wide is the most a view load will offer
   const VIEW_MIN_ZOOM = 14;
   const OV_MAX = 4096;             // overlay canvas of the year on show, pixels a side
   const OV_IDLE = 1024;            // years not on show are kept at most this big
   const CELL = 768;                // contact-sheet cell
-  const SIDES = [150, 300, 600, 1200];
   const R = 20037508.342789244;    // Web Mercator half-circumference, metres
+  const tiled = (year) => !!sources.SOURCES[year].stream;
 
-  const state = { lat: null, lon: null, side: 300, label: '', fresh: false, selected: null, opacity: 1, load: null };
+  const state = { lat: null, lon: null, label: '', fresh: false, selected: null, opacity: 1, load: null };
   let controller = null;           // aborts the in-flight load
   let queue = [];                  // archive years still to read, front first
   const recs = new Map();          // year → record
@@ -56,18 +57,17 @@
     map.attributionControl.addAttribution(
       'DRAPP imagery <a href="https://data.drcog.org" rel="noopener">DRCOG</a> (CC BY 3.0)');
     map.createPane('marks').style.zIndex = 450;   // outline and pin above the imagery overlays
-    base = basemaps.init(map, { button: $('#base-btn'), menu: $('#base-menu') });
-    map.on('zoomend', () => { const cur = currentYear(); if (cur != null) fitDensity(recs.get(cur)); scheduleViewCheck(); });
+    map.createPane('years').style.zIndex = 390;   // a streamed year's tiles: over the base map, under a loaded window
+    base = basemaps.init(map, { button: $('#base-btn'), menu: $('#base-menu'), onChange: () => paintBadge() });
+    map.on('zoomend', () => {
+      const cur = currentYear();
+      if (cur != null) fitDensity(recs.get(cur));
+      scheduleViewCheck();
+    });
     map.on('moveend resize', scheduleViewCheck);
   }
 
   const dpr = () => window.devicePixelRatio || 1;
-
-  /* Device pixels the square lands on once it is fitted to the map. */
-  function screenPx() {
-    const s = map.getSize();
-    return Math.max(1, Math.min(s.x, s.y) - 80) * dpr();
-  }
 
   /* Ground feet per device pixel at the map centre, at the current zoom. */
   function deviceRes() {
@@ -76,22 +76,32 @@
     return mPerCss / dpr() / 0.3048;
   }
 
-  /* Feet per pixel for a square: source pixels, screen pixels, path ceiling —
-     coarsest wins, snapped to the source grid. */
-  function squareRes(sideFt, cap, screen = screenPx()) {
-    const px = Math.min(sideFt / SRC_RES, Math.max(PX_FLOOR, Math.min(screen, cap)));
-    return proj.snapRes(sideFt / px);
+  /* Ground feet per pixel of the streamed tiles on screen now: the tile zoom
+     Leaflet picks (the map's zoom rounded, no deeper than the layer's native
+     zoom), at the size js/basemaps.js asks each tile for. */
+  function tileRes(layer) {
+    const o = layer.options, z = map.getZoom();
+    const tz = Math.max(o.minZoom, Math.min(o.maxNativeZoom, Math.round(z)));
+    const sz = 2 * R / (2 ** tz * 256 / o.tileSize);
+    const c = map.getCenter();
+    const my = map.options.crs.project(c).y;
+    const px = basemaps.tilePx(o.tileSize, sz, my, o.nativeFt);
+    return sz * Math.cos(c.lat * Math.PI / 180) / px / 0.3048;
   }
 
   /* The map view as a state-plane window at the screen's density, no finer
      than the source, no bigger than CAP_VIEW a side. */
-  function viewWindow() {
+  function viewWindow(atRes) {
     const b = map.getBounds();
     const pts = [[b.getWest(), b.getSouth()], [b.getEast(), b.getSouth()], [b.getEast(), b.getNorth()], [b.getWest(), b.getNorth()]]
       .map(([lon, lat]) => proj.toStatePlane(lon, lat));
     const xmin = Math.min(...pts.map((p) => p.x)), xmax = Math.max(...pts.map((p) => p.x));
     const ymin = Math.min(...pts.map((p) => p.y)), ymax = Math.max(...pts.map((p) => p.y));
-    let res = proj.snapRes(Math.max(SRC_RES, deviceRes()));
+    /* The screen's pixel snaps up to the next grid step, so a phone at the
+       3-inch zoom (3.2 in a device pixel) would read at 6 in; anything under
+       1.5 times the source's pixel takes the source's own 3 in instead. */
+    const dev = deviceRes();
+    let res = proj.snapRes(atRes || (dev < 1.5 * SRC_RES ? SRC_RES : dev));
     while ((xmax - xmin) / res > CAP_VIEW || (ymax - ymin) / res > CAP_VIEW) res = proj.snapRes(res * 2);
     return proj.windowBox(xmin, ymin, xmax, ymax, res);
   }
@@ -99,13 +109,32 @@
   /* Does window `w` serve view `v`: centre inside, at least half the area,
      and not much coarser than the screen (when finer exists). */
   function covers(w, v) {
+    if (!over(w, v)) return false;
+    if (w.res > SRC_RES && w.res >= 1.5 * v.res) return false;
+    return true;
+  }
+  /* Window `w` is under the view: its centre and at least half its area. */
+  function over(w, v) {
     if (!w) return false;
     if (v.cx < w.xmin || v.cx > w.xmax || v.cy < w.ymin || v.cy > w.ymax) return false;
     const ix = Math.max(0, Math.min(w.xmax, v.xmax) - Math.max(w.xmin, v.xmin));
     const iy = Math.max(0, Math.min(w.ymax, v.ymax) - Math.max(w.ymin, v.ymin));
-    if (ix * iy < 0.5 * v.w * v.h) return false;
-    if (w.res > SRC_RES && w.res >= 1.5 * v.res) return false;
-    return true;
+    return ix * iy >= 0.5 * v.w * v.h;
+  }
+  /* The part of view `v` inside window `w`, on the grid at the view's density. */
+  function clip(w, v) {
+    const xmin = Math.max(w.xmin, v.xmin), xmax = Math.min(w.xmax, v.xmax);
+    const ymin = Math.max(w.ymin, v.ymin), ymax = Math.min(w.ymax, v.ymax);
+    if (xmax <= xmin || ymax <= ymin) return null;
+    return proj.windowBox(xmin, ymin, xmax, ymax, v.res);
+  }
+  /* The finest pixel a year's source has here, in feet, or null if unknown. */
+  function srcResOf(year, lat, lon) {
+    const src = sources.SOURCES[year];
+    if (src.layout) return src.layout.res;
+    if (src.stream) return SRC_RES;
+    const here = (src.providers || []).filter((p) => lat == null || providers.covers(p, lat, lon));
+    return here.length ? Math.min(...here.map((p) => p.res / 12)) : null;
   }
 
   /* ---------- per-year records + menu rows ---------- */
@@ -125,9 +154,43 @@
       pick: $('.pick', row), st: $('.st', row), bar: $('.pbar i', row), files: $('.files ul', row),
       status: 'idle', src: '', meta: '', credit: '', tiles: [],
       win: null, rect: null, overlay: null, ovCanvas: null, ovW: 0,
+      tiled: tiled(year), layer: null, tilesLoading: false,
     };
     rec.pick.addEventListener('click', () => choose(year));
+    if (rec.tiled) {
+      rec.files.innerHTML = '<li class="dim">streamed as map tiles; Save PNG keeps the view on screen</li>';
+      rec.status = 'ready'; rec.row.className = 'yrow ready';
+      rec.st.textContent = 'tiles, 3 in when zoomed in';
+    }
     return rec;
+  }
+
+  /* A streamed year's tile layer, made the first time the year is shown. */
+  function layerOf(rec) {
+    if (rec.layer) return rec.layer;
+    const l = basemaps.streamLayer(rec.year, { pane: 'years', quality: imageserver.QUALITY, yearLayer: true, opacity: state.opacity });
+    l.on('loading', () => { rec.tilesLoading = true; rec.tileErrors = 0; paintBadge(); });
+    l.on('load', () => { rec.tilesLoading = false; paintBadge(); });
+    l.on('tileerror', () => { rec.tileErrors = (rec.tileErrors || 0) + 1; });
+    rec.layer = l;
+    return l;
+  }
+
+  /* Put the year on show's tiles on the map. A year picked over another
+     streamed year goes on top, and the one under it comes off once the new
+     tiles have landed, so the screen never drops to the base map in between. */
+  function showTiles(cur) {
+    const want = cur != null && recs.get(cur).tiled ? recs.get(cur) : null;
+    const others = [...recs.values()].filter((r) => r.tiled && r !== want && r.layer && map.hasLayer(r.layer));
+    if (!want) { for (const r of others) map.removeLayer(r.layer); return; }
+    const l = layerOf(want);
+    l.setOpacity(state.opacity);
+    if (map.hasLayer(l)) return;
+    l.addTo(map);
+    l.bringToFront();
+    const drop = () => { for (const r of others) if (r.year !== currentYear() && map.hasLayer(r.layer)) map.removeLayer(r.layer); };
+    l.once('load', drop);
+    setTimeout(drop, 8000);
   }
 
   function setStatus(rec, status, text, frac) {
@@ -136,7 +199,8 @@
     rec.st.textContent = text;
     rec.bar.parentElement.hidden = frac == null;
     if (frac != null) rec.bar.style.width = Math.round(frac * 100) + '%';
-    if (status !== 'loading') paintButton();
+    rec.frac = frac;
+    if (status !== 'loading') paintButton(); else paintBadge();
   }
 
   function resetRec(rec) {
@@ -224,7 +288,7 @@
 
   /* Which year is on top: the user's pick if it is ready, else the newest ready year. */
   function currentYear() {
-    const ready = sources.YEARS.filter((y) => recs.get(y).status === 'ready' && recs.get(y).overlay);
+    const ready = sources.YEARS.filter((y) => recs.get(y).status === 'ready' && (recs.get(y).overlay || recs.get(y).tiled));
     if (!ready.length) return null;
     if (state.selected != null && ready.includes(state.selected)) return state.selected;
     return ready[ready.length - 1];
@@ -234,6 +298,7 @@
     const cur = currentYear();
     if (cur != null && recs.get(cur).credit) map.attributionControl.addAttribution(extraCredit);
     else map.attributionControl.removeAttribution(extraCredit);
+    showTiles(cur);
     for (const rec of recs.values()) {
       if (!rec.overlay) continue;
       rec.overlay.setOpacity(rec.year === cur ? state.opacity : 0);
@@ -243,7 +308,9 @@
     clearTimeout(demoteTimer);
     demoteTimer = setTimeout(() => {
       const now = currentYear();
-      for (const rec of recs.values()) if (rec.year !== now && rec.ovW > OV_IDLE) fitDensity(rec, true);
+      for (const rec of recs.values()) {
+        if (rec.year !== now && rec.ovW > OV_IDLE) fitDensity(rec, true);
+      }
     }, 900);
     paintButton();
     scheduleViewCheck();
@@ -253,19 +320,97 @@
     const want = state.selected;
     for (const rec of recs.values()) rec.pick.setAttribute('aria-pressed', String(rec.year === (want ?? cur)));
     if (cur == null) {
-      yearBtn.textContent = state.load == null ? 'Years' : (want ? `${sources.label(want)} · loading…` : 'loading…');
+      yearBtn.textContent = state.load == null ? 'Year' : (want ? `Year ${sources.label(want)} · loading…` : 'Year · loading…');
     } else if (want != null && want !== cur) {
       const r = recs.get(want);
-      yearBtn.textContent = `${sources.label(cur)} · ${sources.label(want)} ${r.status === 'failed' || r.status === 'download' ? 'unavailable' : 'loading…'}`;
+      yearBtn.textContent = `Year ${sources.label(cur)} · ${sources.label(want)} ${r.status === 'failed' || r.status === 'download' ? 'unavailable' : 'loading…'}`;
     } else {
-      yearBtn.textContent = sources.label(cur);
+      yearBtn.textContent = 'Year ' + sources.label(cur);
     }
+    paintBadge();
     const r = cur != null ? recs.get(cur) : null;
-    $('#year-src').textContent = r ? [r.meta, r.win ? `${r.win.w.toFixed(0)}×${r.win.h.toFixed(0)} ft at ${resLabel(r.win.res)}` : '', r.src].filter(Boolean).join(' · ') : '';
+    $('#year-src').textContent = !r ? ''
+      : r.tiled ? `tiles at the map's zoom, 3 in at the finest · ${sources.STREAM_LABEL}`
+      : [r.meta, r.win ? `${r.win.w.toFixed(0)}×${r.win.h.toFixed(0)} ft at ${resLabel(r.win.res)}` : '', r.src].filter(Boolean).join(' · ');
     $('#fade').hidden = cur == null;
     $('#save-year').disabled = cur == null;
   }
   const resLabel = (res) => res < 1 ? `${Math.round(res * 12)} in` : `${+res.toFixed(2)} ft`;
+
+  /* The label on the map: which year is on screen, how sharp, from where —
+     and, while a year is still coming, that what shows meanwhile is the base
+     map or a blurry preview. Jimmy, 2026-11-05: "Need a better way to tell
+     what layer I'm looking at when they're loading." */
+  const badge = $('#ov-badge');
+  const shortSrc = (rec) => rec.src.startsWith(sources.STREAM_LABEL) ? 'DRCOG mosaic'
+    : rec.src.startsWith(sources.ARCHIVE_LABEL) ? 'DRCOG archive' : (rec.credit || rec.src.replace(/\s*\(.*$/, ''));
+  const pending = (rec) => rec.status === 'failed' || rec.status === 'download' ? 'not available here' : (rec.st.textContent || 'loading…');
+  function paintBadge() {
+    if (!map || !recs.size) return;
+    const cur = currentYear(), want = state.selected;
+    if (state.load == null && !(cur != null && recs.get(cur).tiled)) { badge.hidden = true; return; }
+    const b = $('b', badge), s = $('span', badge), bar = $('.pbar', badge);
+    let frac = null;
+    if (cur == null) {
+      const year = want ?? [...sources.YEARS].reverse().find((y) => ['loading', 'queued'].includes(recs.get(y).status));
+      if (year == null) { badge.hidden = true; return; }
+      const r = recs.get(year);
+      b.textContent = sources.label(year);
+      s.textContent = `${pending(r)} — the base map shows meanwhile`;
+      frac = r.status === 'loading' ? r.frac : null;
+    } else {
+      const r = recs.get(cur);
+      b.textContent = sources.label(cur);
+      const here = r.tiled ? tileSharpness(r) : sharpness(r);
+      if (want != null && want !== cur) {
+        const w = recs.get(want);
+        s.textContent = `${here}. ${sources.label(want)}: ${pending(w)}`;
+        frac = w.status === 'loading' ? w.frac : null;
+      } else s.textContent = here;
+    }
+    bar.hidden = frac == null;
+    if (frac != null) $('i', bar).style.width = Math.round(frac * 100) + '%';
+    const it = base && base.item();
+    $('small', badge).textContent = it ? `Base map under it: ${it.plain || it.name}` : '';
+    badge.hidden = false;
+  }
+
+  /* "1 ft a pixel · DRCOG mosaic — coarser than the source, zoom in for 3 in":
+     the pixel size at the middle of the screen, where it came from, and,
+     when it is coarser than the source holds here, how to get the source's own
+     pixels. Jimmy, 2026-11-05: "Can you explain to me if drap is downloading
+     lower resolutions at all? That would not be ideal as the entire point is
+     to show the crazy detail of these aerial images". */
+  function sharpness(r) {
+    if (!r.win) return shortSrc(r);
+    const res = r.win.res;
+    let s = `${resLabel(res)} a pixel · ${shortSrc(r)}`;
+    const l = state.load || {};
+    const finest = srcResOf(r.year, l.lat, l.lon);
+    if (finest && res > finest * 1.01) s += ` — coarser than the source, zoom in and load this view for ${resLabel(finest)}`;
+    else if (map && !covers(r.win, viewWindow())) s += ' — this year is loaded for another spot; Load this view to read it here';
+    return s;
+  }
+  /* A streamed year: the pixel the tiles on screen carry, which follows the
+     zoom down to the source's own 3 in. */
+  function tileSharpness(r) {
+    const c = map.getCenter();
+    if (!proj.inRegion(proj.toStatePlane(c.lng, c.lat))) return 'outside the DRAPP region — pan back to the Denver area';
+    const res = Math.max(SRC_RES, tileRes(layerOf(r)));
+    let s = `${resLabel(res)} a pixel · DRCOG mosaic`;
+    if (r.tilesLoading) s += ' — loading tiles…';
+    else if (r.tileErrors) s += ` — ${r.tileErrors} tile${r.tileErrors === 1 ? '' : 's'} did not load`;
+    else if (res > SRC_RES * 1.01) s += ` — zoom in for ${resLabel(SRC_RES)}`;
+    return s;
+  }
+  /* Sit just under the address panel, whatever its height on this screen. */
+  function placeBadge() {
+    const p = $('.panel-addr').getBoundingClientRect(), st = $('#stage').getBoundingClientRect();
+    badge.style.top = Math.round(p.bottom - st.top + 8) + 'px';
+  }
+  if (window.ResizeObserver) new ResizeObserver(placeBadge).observe($('.panel-addr'));
+  window.addEventListener('resize', placeBadge);
+  placeBadge();
 
   function closeMenu() { menu.hidden = true; yearBtn.setAttribute('aria-expanded', 'false'); }
 
@@ -338,6 +483,8 @@
 
   /* Render `years` for the base window. o: {lat, lon, label, archiveRes, fit}. */
   async function load(base, years, o) {
+    years = years.filter((y) => !tiled(y));     // streamed years are tiles already
+    if (!years.length) return;
     if (controller) controller.abort();
     controller = new AbortController();
     const { signal } = controller;
@@ -345,8 +492,7 @@
     state.load = { win: base, lat, lon, label: o.label };
     hideView();
     drawBox(base);
-    if (o.fit) map.fitBounds(warp.bounds(warp.mercRect(base)), { padding: [40, 40], maxZoom: 20 });
-    say(`${o.label} — ${base.w.toFixed(0)} × ${base.h.toFixed(0)} ft at ${resLabel(base.res)} a pixel. ${years.length === sources.YEARS.length ? 'Newest year first, then back through the archive.' : years.length + (years.length === 1 ? ' year.' : ' years.')}`);
+    say(`${o.label} — 2018 to 2024 are on the map as tiles; ${years.length === 1 ? sources.label(years[0]) + ' is' : years.length + ' older years are'} loading for the view on screen (${base.w.toFixed(0)} × ${base.h.toFixed(0)} ft at ${resLabel(base.res)} a pixel).`);
     map.attributionControl.removeAttribution(extraCredit);
     const winOf = (year) => winFor(year, base, o.archiveRes, lat, lon);
     for (const y of years) { const rec = recs.get(y); resetRec(rec); rec.win = winOf(y); }
@@ -387,27 +533,6 @@
         if (e.name === 'AbortError') return;
         rec.indexError = e.message;
         rec.files.innerHTML = `<li class="dim">tile index unavailable (${e.message})</li>`;
-      }
-    });
-
-    /* Streamed years, all at once; the newest fades in as soon as it lands. */
-    const fallbacks = [], toCache = [];
-    const streamed = todo.filter((y) => sources.SOURCES[y].stream).map(async (year) => {
-      const rec = recs.get(year);
-      setStatus(rec, 'loading', 'streaming…', null);
-      const w = winOf(year);
-      try {
-        await imageserver.render(sources.SOURCES[year].stream, prep(rec, w), rec.canvas, signal);
-        finish(rec, w, sources.STREAM_LABEL);
-        toCache.push(year);
-      } catch (e) {
-        if (e.name === 'AbortError') return;
-        if (sources.SOURCES[year].archive === 'tif') {
-          setStatus(rec, 'queued', 'service failed, will read archive', null);
-          fallbacks.push(year);
-        } else {
-          setStatus(rec, 'failed', e.message, null);
-        }
       }
     });
 
@@ -477,40 +602,40 @@
         if (signal.aborted) return;
         await fromArchive(queue.shift());
       }
-      await Promise.all([...streamed, ...extras]);
-      for (const year of toCache) {
-        const rec = recs.get(year);
-        cache.put(year, rec.win, rec.canvas, { src: sources.STREAM_LABEL, meta: rec.meta });
-      }
-      queue = fallbacks.sort((a, b) => b - a);
-      while (queue.length) {
-        if (signal.aborted) return;
-        await fromArchive(queue.shift());
-      }
+      await Promise.all(extras);
     } catch (e) {
       if (e.name === 'AbortError') return;
       throw e;
     }
     if (!signal.aborted) {
-      say(`${o.label} — ${years.length === sources.YEARS.length ? 'all years' : years.length === 1 ? sources.label(years[0]) : years.length + ' years'} loaded.`);
+      say(`${o.label} — ${years.length === sources.YEARS.filter((y) => !tiled(y)).length ? 'every year here' :years.length === 1 ? sources.label(years[0]) : years.length + ' years'} loaded.`);
       updateCacheNote();
       scheduleViewCheck();
     }
   }
 
-  /* An address: the square, every year. */
-  function show() {
+  /* An address, or "Every year here": the view on screen, every year. The
+     streamed years are tiles and are there already; every other year is read
+     for the view (the tap is the okay, the way the address square used to
+     be), at the screen's density, at most CAP_ARCHIVE pixels a side. An
+     address first moves the map there at the zoom where a device pixel is
+     about one 3-inch source pixel; "Every year here" keeps the view. */
+  function show(keepView) {
     const sp = proj.toStatePlane(state.lon, state.lat);
     if (!proj.inRegion(sp)) {
       say(`${state.label} is outside the DRAPP footprint (the Denver region). Nothing to show.`, 'warn');
-      for (const rec of recs.values()) { resetRec(rec); setStatus(rec, 'failed', 'outside region', null); }
+      for (const rec of recs.values()) if (!rec.tiled) { resetRec(rec); setStatus(rec, 'failed', 'outside region', null); }
       map.setView([state.lat, state.lon], 12);
       return;
     }
     if (pin) map.removeLayer(pin);
     pin = L.circleMarker([state.lat, state.lon], { pane: 'marks', radius: 4, color: '#e8c36a', weight: 2, fillColor: '#0f1418', fillOpacity: 1, interactive: false }).addTo(map);
-    const base = proj.windowFor(sp.x, sp.y, state.side, state.side, squareRes(state.side, CAP_STREAM));
-    return load(base, sources.YEARS, { lat: state.lat, lon: state.lon, label: `${state.label} · ${state.side} ft square`, archiveRes: squareRes(state.side, CAP_ARCHIVE), fit: true });
+    if (!keepView) map.setView([state.lat, state.lon], zoom3in(state.lat), { animate: false });
+    const vw = viewWindow();
+    let ar = vw.res;
+    while (vw.w / ar > CAP_ARCHIVE || vw.h / ar > CAP_ARCHIVE) ar = proj.snapRes(ar * 2);
+    paintButton();
+    return load(vw, sources.YEARS, { lat: state.lat, lon: state.lon, label: state.label, archiveRes: ar });
   }
 
   /* ---------- load this view ---------- */
@@ -525,7 +650,7 @@
 
   function scheduleViewCheck() {
     clearTimeout(viewTimer);
-    viewTimer = setTimeout(viewCheck, 250);
+    viewTimer = setTimeout(() => { viewCheck(); paintBadge(); }, 250);
   }
   function hideView() { view.el.hidden = true; viewWin = null; }
 
@@ -536,7 +661,8 @@
     const vw = viewWindow();
     const year = state.selected ?? currentYear();
     const rec = year != null ? recs.get(year) : null;
-    if (rec && covers(rec.win, vw)) return hideView();
+    if (!rec || rec.tiled) return hideView();     // tiles follow the view by themselves
+    if (covers(rec.win, vw)) return hideView();
     if (dismissedWin && covers(dismissedWin, vw) && covers(vw, dismissedWin)) return hideView();
     viewWin = vw;
     if (!viewSel.size) viewSel.add(year ?? newestLoadable(vw));
@@ -544,19 +670,20 @@
     paintView();
   }
 
+  /* A year the prompt can load here. Streamed years are not in it: they are
+     tiles, on the map at full detail with nothing to load. */
   const loadable = (year, vw) => {
     const src = sources.SOURCES[year];
-    if (src.stream || (sources.isDrapp(year) && src.archive === 'tif')) return true;
+    if (src.stream) return false;
+    if (sources.isDrapp(year) && src.archive === 'tif') return true;
     const { lat, lon } = proj.toLonLat(vw.cx, vw.cy);
     return (src.providers || []).some((p) => providers.covers(p, lat, lon));
   };
-  /* The default tick: the newest DRAPP mosaic, which is one cheap request;
-     failing that the newest year that can render here at all. */
-  const newestLoadable = (vw) => [...sources.YEARS].reverse().find((y) => sources.SOURCES[y].stream)
-    ?? [...sources.YEARS].reverse().find((y) => loadable(y, vw));
+  /* The default tick: the newest year the prompt can load here. */
+  const newestLoadable = (vw) => [...sources.YEARS].reverse().find((y) => loadable(y, vw));
 
-  /* Estimates for the prompt: streamed years are known at once; archive years
-     wait for their tile lookup and repaint when it lands. */
+  /* Estimates for the prompt: archive years wait for their tile lookup and
+     repaint when it lands. */
   let viewEsts = new Map();
   function paintView() {
     const vw = viewWin;
@@ -659,7 +786,6 @@
     if (state.lat == null) return;
     const h = new URLSearchParams();
     h.set('ll', `${state.lat.toFixed(6)},${state.lon.toFixed(6)}`);
-    h.set('s', state.side);
     if (state.selected != null) h.set('y', state.selected);
     if (state.label) h.set('q', state.label);
     history.replaceState(null, '', '#' + h.toString());
@@ -668,8 +794,6 @@
   function readHash() {
     const h = new URLSearchParams(location.hash.slice(1));
     const ll = (h.get('ll') || '').split(',').map(Number);
-    const s = +h.get('s');
-    if (SIDES.includes(s)) state.side = s;
     const y = +h.get('y');
     if (sources.YEARS.includes(y)) state.selected = y;
     state.fresh = h.get('fresh') === '1';
@@ -712,20 +836,13 @@
       { enableHighAccuracy: true, timeout: 10000 });
   });
 
+  /* Every year for the view on screen, without moving the map. */
   $('#load-here').addEventListener('click', () => {
     const c = map.getCenter();
-    go(c.lat, c.lng, `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`);
+    state.lat = c.lat; state.lon = c.lng; state.label = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+    writeHash();
+    show(true);
   });
-
-  const sizeBtns = [...document.querySelectorAll('#sizes button')];
-  function paintSizes() { for (const b of sizeBtns) b.setAttribute('aria-pressed', String(+b.dataset.side === state.side)); }
-  for (const b of sizeBtns) {
-    b.addEventListener('click', () => {
-      state.side = +b.dataset.side;
-      paintSizes();
-      if (state.lat != null) { writeHash(); show(); }
-    });
-  }
 
   yearBtn.addEventListener('click', () => {
     menu.hidden = !menu.hidden;
@@ -752,16 +869,35 @@
     a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
   }
-  const fileStem = (rec) => `drapp-${rec.year}-${proj.toLonLat(rec.win.cx, rec.win.cy).lat.toFixed(5)}_${proj.toLonLat(rec.win.cx, rec.win.cy).lon.toFixed(5)}-${rec.win.w.toFixed(0)}x${rec.win.h.toFixed(0)}ft`;
-  $('#save-year').addEventListener('click', () => {
+  const fileStem = (year, win) => `drapp-${year}-${proj.toLonLat(win.cx, win.cy).lat.toFixed(5)}_${proj.toLonLat(win.cx, win.cy).lon.toFixed(5)}-${win.w.toFixed(0)}x${win.h.toFixed(0)}ft`;
+
+  /* A year's picture as a state-plane canvas: a loaded window as it is; a
+     streamed year, which is only tiles on the map, is asked once for the view
+     on screen at the screen's density (3 in at the finest), at most `maxPx`
+     a side. */
+  async function pictureOf(rec, maxPx) {
+    if (!rec.tiled) return rec.status === 'ready' && rec.win ? { canvas: rec.canvas, win: rec.win } : null;
+    let w = viewWindow();
+    while (w.px > maxPx || w.py > maxPx) w = proj.rewindow(w, proj.snapRes(w.res * 2));
+    const canvas = document.createElement('canvas');
+    canvas.width = w.px; canvas.height = w.py;
+    try { await imageserver.render(sources.SOURCES[rec.year].stream, w, canvas); } catch (e) { return null; }
+    return { canvas, win: w };
+  }
+
+  $('#save-year').addEventListener('click', async () => {
     const cur = currentYear();
     if (cur == null) return;
     const rec = recs.get(cur);
-    download(warp.toMercator(rec.canvas, rec.win, rec.rect, rec.win.px), fileStem(rec) + '.png');   // north up, source pixels
+    if (rec.tiled) say(`Saving ${sources.label(cur)} for the view on screen…`);
+    const p = await pictureOf(rec, CAP_VIEW);
+    if (!p) return say(`${sources.label(cur)} did not come back from DRCOG's server; try again.`, 'warn');
+    download(warp.toMercator(p.canvas, p.win, warp.mercRect(p.win), p.win.px), fileStem(cur, p.win) + '.png');   // north up, source pixels
   });
 
-  function contactSheet() {
+  async function contactSheet() {
     if (!sources.YEARS.some((y) => recs.get(y).status === 'ready')) return null;
+    const pics = new Map(await Promise.all(sources.YEARS.map(async (y) => [y, await pictureOf(recs.get(y), 1536)])));
     const cols = 4, gap = 16, label = 34, footer = 40;
     const rows = Math.ceil(sources.YEARS.length / cols);
     const sheet = document.createElement('canvas');
@@ -778,10 +914,11 @@
       ctx.fillText(sources.label(year), x, y + label / 2);
       ctx.fillStyle = '#98a3ad'; ctx.font = '14px system-ui, sans-serif';
       if (rec.meta) ctx.fillText(rec.meta, x + 70, y + label / 2);
-      if (rec.status === 'ready' && rec.win) {
-        const s = Math.min(CELL / rec.win.px, CELL / rec.win.py), w = rec.win.px * s, h = rec.win.py * s;
+      const pic = pics.get(year);
+      if (pic) {
+        const s = Math.min(CELL / pic.win.px, CELL / pic.win.py), w = pic.win.px * s, h = pic.win.py * s;
         ctx.fillStyle = '#171e25'; ctx.fillRect(x, y + label, CELL, CELL);
-        ctx.drawImage(rec.canvas, x + (CELL - w) / 2, y + label + (CELL - h) / 2, w, h);
+        ctx.drawImage(pic.canvas, x + (CELL - w) / 2, y + label + (CELL - h) / 2, w, h);
       } else {
         ctx.fillStyle = '#171e25'; ctx.fillRect(x, y + label, CELL, CELL);
         ctx.fillStyle = '#98a3ad'; ctx.textAlign = 'center';
@@ -793,11 +930,12 @@
     const credits = ['DRAPP imagery, DRCOG Regional Data Catalog (CC BY 3.0)',
       ...new Set(sources.YEARS.filter((y) => recs.get(y).status === 'ready' && recs.get(y).credit).map((y) => recs.get(y).credit))];
     const l = state.load;
-    ctx.fillText(`${l ? l.label : ''} · grid north up · ${credits.join(' · ')} · drapp.myjimmycloud.com`, gap, sheet.height - footer / 2);
+    ctx.fillText(`${l ? l.label : 'Map view'} · grid north up · ${credits.join(' · ')} · drapp.myjimmycloud.com`, gap, sheet.height - footer / 2);
     return sheet;
   }
-  $('#save-all').addEventListener('click', () => {
-    const sheet = contactSheet();
+  $('#save-all').addEventListener('click', async () => {
+    say('Putting every year on one sheet…');
+    const sheet = await contactSheet();
     if (!sheet) return say('Nothing rendered yet to save.', 'warn');
     const l = state.load;
     download(sheet, `drapp-all-years-${l ? l.lat.toFixed(5) + '_' + l.lon.toFixed(5) : 'view'}.png`);
@@ -809,16 +947,35 @@
     say('Cache cleared. The next address will be fetched fresh.');
   });
 
+  /* ---------- the opening view ---------- */
+  /* A link with no address opens on the Colorado State Capitol dome
+     (Wikipedia's coordinates, en.wikipedia.org/wiki/Colorado_State_Capitol)
+     at the zoom where one device pixel is about one 3-inch source pixel —
+     19.5 on a phone, 20.5 on a plain desktop screen — with the newest
+     streamed year on show as tiles, which at that zoom are the source's own
+     3 inches. Every other year is "Every year here" or "Load this view". */
+  const CAPITOL = { lat: 39.7392321, lon: -104.9848677, label: 'Colorado State Capitol' };
+  function zoom3in(lat) {
+    const mPerCss0 = (2 * R / 256) * Math.cos(lat * Math.PI / 180);
+    const z = Math.log2(mPerCss0 / (SRC_RES * 0.3048 * dpr()));
+    return Math.min(21, Math.max(VIEW_MIN_ZOOM, Math.floor(z * 2) / 2));
+  }
+  function openHome() {
+    map.setView([CAPITOL.lat, CAPITOL.lon], zoom3in(CAPITOL.lat), { animate: false });
+    if (state.selected == null) state.selected = [...sources.YEARS].reverse().find(tiled);
+    showBest();
+  }
+
   /* ---------- boot ---------- */
   initMap();
   for (const y of [...sources.YEARS].reverse()) recs.set(y, makeRec(y));
   const h = readHash();
-  paintSizes();
   paintButton();
+  showBest();
   if (h === true) { input.value = state.label; show(); }
   else if (h === 'geocode') form.requestSubmit();
-  else say('Type an address in the Denver region to see it in every DRAPP year — or zoom the map in and load the view.');
+  else openHome();
   updateCacheNote();
 
-  DRAPP.app = { state, show, load, recs, contactSheet, currentYear, squareRes, viewWindow, covers, map: () => map, base: () => base };
+  DRAPP.app = { state, show, load, recs, contactSheet, currentYear, tileRes, viewWindow, covers, over, clip, srcResOf, map: () => map, base: () => base };
 })();
