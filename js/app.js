@@ -334,7 +334,7 @@
     bar.hidden = frac == null;
     if (frac != null) $('i', bar).style.width = Math.round(frac * 100) + '%';
     const it = base && base.item();
-    $('small', badge).textContent = it ? `Base map underneath: ${it.plain || it.name}` : '';
+    $('small', badge).textContent = it ? `Base map under it: ${it.plain || it.name}` : '';
     badge.hidden = false;
   }
 
