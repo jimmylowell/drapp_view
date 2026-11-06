@@ -85,13 +85,13 @@
 
   /* The map view as a state-plane window at the screen's density, no finer
      than the source, no bigger than CAP_VIEW a side. */
-  function viewWindow() {
+  function viewWindow(atRes) {
     const b = map.getBounds();
     const pts = [[b.getWest(), b.getSouth()], [b.getEast(), b.getSouth()], [b.getEast(), b.getNorth()], [b.getWest(), b.getNorth()]]
       .map(([lon, lat]) => proj.toStatePlane(lon, lat));
     const xmin = Math.min(...pts.map((p) => p.x)), xmax = Math.max(...pts.map((p) => p.x));
     const ymin = Math.min(...pts.map((p) => p.y)), ymax = Math.max(...pts.map((p) => p.y));
-    let res = proj.snapRes(Math.max(SRC_RES, deviceRes()));
+    let res = proj.snapRes(atRes || Math.max(SRC_RES, deviceRes()));
     while ((xmax - xmin) / res > CAP_VIEW || (ymax - ymin) / res > CAP_VIEW) res = proj.snapRes(res * 2);
     return proj.windowBox(xmin, ymin, xmax, ymax, res);
   }
@@ -809,6 +809,29 @@
     say('Cache cleared. The next address will be fetched fresh.');
   });
 
+  /* ---------- the opening view ---------- */
+  /* A link with no address opens on the Colorado State Capitol dome
+     (Wikipedia's coordinates, en.wikipedia.org/wiki/Colorado_State_Capitol)
+     at the zoom where one device pixel is about one 3-inch source pixel —
+     19.5 on a phone, 20.5 on a plain desktop screen — and loads the newest
+     streamed year for that view at 3 inches (the screen alone would round to
+     6): one ImageServer request, about a megabyte.
+     Every other year is a tick away in "Load this view". */
+  const CAPITOL = { lat: 39.7392321, lon: -104.9848677, label: 'Colorado State Capitol' };
+  function homeZoom() {
+    const mPerCss0 = (2 * R / 256) * Math.cos(CAPITOL.lat * Math.PI / 180);
+    const z = Math.log2(mPerCss0 / (SRC_RES * 0.3048 * dpr()));
+    return Math.min(21, Math.max(VIEW_MIN_ZOOM, Math.floor(z * 2) / 2));
+  }
+  function openHome() {
+    map.setView([CAPITOL.lat, CAPITOL.lon], homeZoom(), { animate: false });
+    const vw = viewWindow(SRC_RES);   // the source's own pixels, a hair finer than the screen
+    const year = newestLoadable(vw);
+    if (year == null) return say('Type an address in the Denver region to see it in every DRAPP year — or zoom the map in and load the view.');
+    state.selected = year;
+    load(vw, [year], { lat: CAPITOL.lat, lon: CAPITOL.lon, label: CAPITOL.label });
+  }
+
   /* ---------- boot ---------- */
   initMap();
   for (const y of [...sources.YEARS].reverse()) recs.set(y, makeRec(y));
@@ -817,7 +840,7 @@
   paintButton();
   if (h === true) { input.value = state.label; show(); }
   else if (h === 'geocode') form.requestSubmit();
-  else say('Type an address in the Denver region to see it in every DRAPP year — or zoom the map in and load the view.');
+  else openHome();
   updateCacheNote();
 
   DRAPP.app = { state, show, load, recs, contactSheet, currentYear, squareRes, viewWindow, covers, map: () => map, base: () => base };
