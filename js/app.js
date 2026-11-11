@@ -113,6 +113,18 @@
     if (w.res > SRC_RES && w.res >= 1.5 * v.res) return false;
     return true;
   }
+  /* Has `rec` already been tried for view `v`? Loaded: its window is under the
+     view at least as fine as that year would load it now, so a 1 ft flight
+     (1933, the county years) is not offered again just because the screen
+     could show finer. Failed or download-only: tried here, nothing to retry. */
+  function doneHere(rec, v) {
+    if (!over(rec.win, v)) return false;
+    if (rec.status === 'failed' || rec.status === 'download') return true;
+    if (rec.status !== 'ready') return false;
+    if (covers(rec.win, v)) return true;
+    const { lat, lon } = proj.toLonLat(v.cx, v.cy);
+    return rec.win.res <= winFor(rec.year, v, null, lat, lon).res * 1.001;
+  }
   /* Window `w` is under the view: its centre and at least half its area. */
   function over(w, v) {
     if (!w) return false;
@@ -207,7 +219,7 @@
     rec.canvas.getContext('2d').clearRect(0, 0, rec.canvas.width, rec.canvas.height);
     if (rec.overlay) { map.removeLayer(rec.overlay); rec.overlay = null; }
     rec.win = null; rec.rect = null; rec.ovW = 0;
-    rec.src = ''; rec.meta = ''; rec.credit = ''; rec.tiles = []; rec.indexError = '';
+    rec.src = ''; rec.meta = ''; rec.credit = ''; rec.tiles = []; rec.indexError = ''; rec.nothingHere = false;
     rec.files.innerHTML = '<li class="dim">looking up tiles…</li>';
     setStatus(rec, 'queued', 'queued', null);
   }
@@ -344,7 +356,16 @@
   const badge = $('#ov-badge');
   const shortSrc = (rec) => rec.src.startsWith(sources.STREAM_LABEL) ? 'DRCOG mosaic'
     : rec.src.startsWith(sources.ARCHIVE_LABEL) ? 'DRCOG archive' : (rec.credit || rec.src.replace(/\s*\(.*$/, ''));
-  const pending = (rec) => rec.status === 'failed' || rec.status === 'download' ? 'not available here' : (rec.st.textContent || 'loading…');
+  const pending = (rec) => {
+    if (rec.status === 'failed' || rec.status === 'download') return 'not available here';
+    if (rec.status === 'idle' && map) {
+      const vw = viewWindow();
+      if (loadable(rec.year, vw)) return 'tap Load this view to read it';
+      const list = sources.SOURCES[rec.year].providers || [];
+      return list.length ? 'only ' + [...new Set(list.map((p) => p.area))].join(', ') : 'not available here';
+    }
+    return rec.st.textContent || 'loading…';
+  };
   function paintBadge() {
     if (!map || !recs.size) return;
     const cur = currentYear(), want = state.selected;
@@ -383,12 +404,15 @@
      to show the crazy detail of these aerial images". */
   function sharpness(r) {
     if (!r.win) return shortSrc(r);
-    const res = r.win.res;
-    let s = `${resLabel(res)} a pixel · ${shortSrc(r)}`;
     const l = state.load || {};
     const finest = srcResOf(r.year, l.lat, l.lon);
+    /* The pixel the picture carries: the window's, or the file's own when that
+       is coarser. 2004 and 2006 are 1 ft files (their world files say so)
+       drawn on a 3 in window; calling that "3 in a pixel" was not true. */
+    const res = Math.max(r.win.res, finest || 0);
+    let s = `${resLabel(res)} a pixel · ${shortSrc(r)}`;
     if (finest && res > finest * 1.01) s += ` — coarser than the source, zoom in and load this view for ${resLabel(finest)}`;
-    else if (map && !covers(r.win, viewWindow())) s += ' — this year is loaded for another spot; Load this view to read it here';
+    else if (map && !doneHere(r, viewWindow())) s += ' — this year is loaded for another spot; Load this view to read it here';
     return s;
   }
   /* A streamed year: the pixel the tiles on screen carry, which follows the
@@ -417,6 +441,11 @@
   function choose(year) {
     state.selected = year;
     const rec = recs.get(year);
+    /* A year picked from the menu is the one "Load this view" offers. Before
+       2026-11-11 the prompt kept whatever was ticked first, so after one older
+       year had loaded, picking 2004 offered that year again, and Load fetched
+       it and switched the pick back to it: 2004 never came. */
+    if (!rec.tiled) viewSel.add(year);
     if (rec.status === 'queued' && queue.includes(year)) {          // jump the queue
       queue = [year, ...queue.filter((y) => y !== year)];
       setStatus(rec, 'queued', 'next up', null);
@@ -553,6 +582,7 @@
         return true;
       } catch (e) {
         if (e.name === 'AbortError') throw e;
+        rec.nothingHere = !!e.nothingHere;
         setStatus(rec, 'failed', e.message, null);
         return false;
       }
@@ -572,7 +602,11 @@
       const src = sources.SOURCES[year];
       if (src.archive !== 'tif') {
         if (await fromProviders(year)) return;
-        if (rec.status === 'failed') return;   // a county service covers here but did not answer; say that, not "download"
+        /* A county service that did not answer: say that, not "download". One
+           that answered blank ("Arapahoe County has nothing here", downtown
+           Denver in 2002 and 2008) says nothing about DRCOG's own tile, which
+           is there and can be downloaded. */
+        if (rec.status === 'failed' && !rec.nothingHere) return;
         setStatus(rec, 'download', src.archive === 'jp2' ? 'JPEG 2000 — download only (≈8 MB)' : 'MrSID — download only, opens in QGIS', null);
         return;
       }
@@ -662,9 +696,11 @@
     const year = state.selected ?? currentYear();
     const rec = year != null ? recs.get(year) : null;
     if (!rec || rec.tiled) return hideView();     // tiles follow the view by themselves
-    if (covers(rec.win, vw)) return hideView();
+    if (doneHere(rec, vw)) return hideView();
     if (dismissedWin && covers(dismissedWin, vw) && covers(vw, dismissedWin)) return hideView();
     viewWin = vw;
+    /* A ticked year already tried for this view needs no second fetch. */
+    for (const y of [...viewSel]) if (y !== year && doneHere(recs.get(y), vw)) viewSel.delete(y);
     if (!viewSel.size) viewSel.add(year ?? newestLoadable(vw));
     view.el.hidden = false;
     paintView();
