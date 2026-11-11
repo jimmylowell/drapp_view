@@ -26,7 +26,10 @@
         return { provider: p, note };
       } catch (e) {
         if (e.name === 'AbortError') throw e;
-        last = /^no (imagery|tiles)/.test(e.message) ? new Error(`${p.credit} has nothing here`) : e;
+        if (/^no (imagery|tiles)/.test(e.message)) {
+          last = new Error(`${p.credit} has nothing here`);
+          last.nothingHere = true;      // answered, but blank: not a failure of the service
+        } else last = e;
       }
     }
     throw last;

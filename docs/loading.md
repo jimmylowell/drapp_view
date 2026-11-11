@@ -6,6 +6,62 @@ a better way to tell what layer I'm looking at when they're loading. Can the def
 test include the most granular detailed image?" and "We might have to look at how it's
 downloading/streaming the hi-res photo".
 
+## Years before 2006, and what the base map is (2026-11-11)
+
+Jimmy (2026-11-11): "Loading dates prior to 2006 does not seem to be working", and "I'm
+curious if the base map is using Drap itself these days".
+
+**Why picked years did not load.** Picking an older year from the menu does not fetch
+it; the "Load this view" prompt does. That prompt ticked a year only when nothing was
+ticked yet, and kept the tick across picks. So after one older year had loaded (2016,
+say), picking 2004 still offered "Load 2016", and tapping it fetched 2016 again and set
+the year on show back to 2016. 2004 never came, whatever was tapped. Fixed in
+`choose()` and `viewCheck()` (`js/app.js`): a pick ticks that year, and a ticked year
+already tried for this view drops out (`doneHere()`), so a 1 ft year such as 1933 is not
+offered again just because the screen could show finer.
+
+**Smaller fixes in the same pass.**
+
+- The label said "2004: idle" for a picked year not yet loaded; it now says "tap Load
+  this view to read it", or "only Arapahoe County" (and so on) where the year has no
+  source at all.
+- Downtown, 2002 and 2008 said "Arapahoe County has nothing here": the county's 2002 and
+  2008 layers have a rectangular extent that takes in downtown, but no pixels there. A
+  blank answer from a county now falls through to DRCOG's own tile, which is there and
+  is download-only: "JPEG 2000 — download only (≈8 MB)" for 2002, "MrSID — download only"
+  for 2008.
+- 2004 and 2006 said "3 in a pixel". DRCOG's archive files for both are 1 ft a pixel
+  (the world files for tile `3140375_1695645` read `1.0` and `-1.0`, state-plane feet);
+  the page drew them on a 3 in window. The label now says the file's own pixel, 1 ft.
+  DRCOG's 2006 tile index says "6 Inch" for the same tile; the file is 1 ft, so the year
+  menu's "6 in · 4/12/2006" (from the index) still disagrees with the label. Left as the
+  index has it.
+
+**What there is before 2006, by place** (from `js/sources.js`, checked 2026-11-11 at the
+Capitol in headless Chrome, 390 px, device scale 2):
+
+| Year | Downtown Denver | Where it does load |
+|---|---|---|
+| 2004 | yes, DRCOG archive, 1 ft, 11 requests, ~0.7 MB | most of the region; tile `3075375_1695645` (Golden) is indexed but the file is missing from DRCOG's bucket (HTTP 404) |
+| 2002 | download only (JPEG 2000, ≈8 MB) | in the browser only inside Arapahoe County (county flight) |
+| 2000, 1998 | no | Arapahoe County; 2000 also Boulder County |
+| 1990s to 1953 | no | the South Metro fire district (Centennial to Parker); 1953 also Englewood and Littleton |
+| 1977, 1948 | no | Boulder County; Boulder |
+| 1933 | yes, 1 ft, Denver Public Library | central Denver |
+| 1930 | no | downtown Golden |
+
+So outside Arapahoe County, the south suburbs and Boulder, a person in Denver gets 2004,
+then nothing until 1933. That is the sources, not the page.
+
+**The base map is DRAPP.** The default, *Newest available*, is DRCOG's 2024 mosaic as
+tiles (Arapahoe's 2026 flight on top inside that county, Bing aerial at half opacity
+outside the region): `newestAvailable()` in `js/basemaps.js`. Under 2024 it is the same
+pictures as the year on show, which is why the two look alike. To see the extra detail
+of the aerials against an ordinary base map, the base map to pick is *Bing aerial* or
+*Esri world imagery*, both about 9 in a pixel at their zoom 19 in Denver and stretched
+past it, against DRAPP's 3 in. Whether to make one of those the default, or add a
+side-by-side, is a look change and waits for Jimmy.
+
 ## Now: tiles at the map's own zoom (2026-11-06, third round)
 
 Jimmy, on the phone, with a screenshot of the 1200 ft square zoomed in at the
