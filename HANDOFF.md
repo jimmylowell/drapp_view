@@ -16,5 +16,7 @@
 - 2004 tile `3075375_1695645` (Golden) is indexed but missing from DRCOG's bucket.
 - The 2010 index file is 1.4 MB (187 KB compressed) because 2010 was cut into quarter-section tiles.
 - Looked for 2004–2016 as a map service for Denver itself and found none that answers: MapMart's `DRCOG/Denver_CO_{year}` services (which Littleton's portal points at) no longer resolve, and denvergov.org's image services reset the connection.
+- Central Denver between 1934 and 2000 has no source a browser can draw; what was tried and why each fails is in [docs/design.md](docs/design.md), *Denver itself between 1933 and 2000*. The one route is USGS's orthophoto quadrangles, which need a USGS account to fetch and tiles hosted for the page.
+- Jefferson County serves DRAPP 2006–2022 as image services (`gisportal.jeffco.us/image/rest/services/DRAPP/DRAPP{year}`), drawing inside that county only. Added like Arapahoe's, they would make 2006–2016 and the download-only 2008 plain tiles in Lakewood, Arvada and Golden.
 
 **Over to you.** Nothing.
