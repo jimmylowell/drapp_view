@@ -117,6 +117,39 @@ Every source, its extent and its licence note are in `js/sources.js` and listed 
 *About* on the page. `npm run probe` checks the upstreams. None of them is a documented
 public API; if one dies its years drop off the timeline and the rest still draw.
 
+## Denver itself between 1933 and 2000
+
+Central Denver has one year before DRAPP that a browser can draw: 1933, the King survey. Every pre-2000 layer on the timeline belongs to a neighbour, and
+each one answers central Denver with a 404 or a blank tile (checked 2026-11-13 at Union
+Station, City Park, Washington Park and Stapleton): South Metro Fire Rescue's decade
+caches stop at the district, Arapahoe County's 1998 and 2000 layers draw only inside the
+county, and Boulder's and CDOT's scans are one county or one town each.
+
+The photographs exist. They are prints, film or files behind a login, not map tiles.
+
+| Source | What it holds for Denver | Why it is not on the timeline |
+|---|---|---|
+| [Denver Public Library, *Aerial Imagery of Denver and Colorado*](https://history.denverlibrary.org/research/aerial-imagery-denver-and-colorado) | 1937 (Denver's edges only), 1960, 1966, 1969 (Adams County), 1970, 1972, 1971–1973 (statewide), 1974, 1988, 1993, and Landiscor atlases 1984–2003 | Prints, negatives and bound atlases in Special Collections, browsed in person. Only 1933 is online as tiles |
+| [The library's Time Traveler's Map](https://history.denverlibrary.org/maps/time-travelers/) (its layer list is [`Denver.json`](https://history.denverlibrary.org/maps/time-travelers/Denver.json)) | 1933 King, plus 1939, 1965, 1971, 1980 and 1994 USGS layers | The USGS layers are topographic maps, not photographs |
+| [USGS EROS: Digital Orthophoto Quadrangles](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-digital-orthophoto-quadrangle-doqs) | Orthophoto quadrangles at 1 m, black and white, colour or colour-infrared; which years cover Denver is unknown until searched with an account | Downloaded from [EarthExplorer](https://earthexplorer.usgs.gov/) as files; the download API ([`m2m.cr.usgs.gov`](https://m2m.cr.usgs.gov/)) refuses a request without a USGS account. No tile service. To be on the timeline they would have to be fetched with an account, cut into tiles and hosted for the page |
+| [USGS EROS: National Aerial Photography Program](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-national-aerial-photography-program-napp) and single frames | Frames | Unrectified single frames: placing them on the map would be our guess, not the record's |
+| [The National Map download API](https://tnmaccess.nationalmap.gov/api/v1/datasets) | No orthoimagery over Denver before 2001; NAIP starts later | Nothing to show |
+| [USGS imagery map services](https://imagery.nationalmap.gov/arcgis/rest/services) | NAIP only | Nothing before 2000 |
+| [DRCOG data catalogue](https://data.drcog.org/data) | DRAPP, which starts in 2002 (the library's guide says so) | Nothing before 2002 |
+| City and County of Denver: [its ArcGIS Online tiles](https://tiles.arcgis.com/tiles/zdB7qR0BtYrg0Xpl/arcgis/rest/services) and `denvergov.org` | 2016 and 2018 aerials; `denvergov.org/16p26p/…/AerialImagery` answers 404 and `denvergov.org/arcgis` closes the connection | Nothing before 2016 |
+| [CDOT's ArcGIS Online scans](https://tiles.arcgis.com/tiles/yzB9WM8W0BO3Ql7d/arcgis/rest/services) | 1944–1960 town scans: Golden, Boulder, Englewood–Littleton, Fort Collins, Greeley, Pueblo and others | None covers Denver |
+| [Arapahoe County aerials](https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer) | 1998–2026, one layer per flight | Draws only inside the county; blank over central Denver |
+| [Boulder County rasters](https://maps.bouldercounty.org/arcgis/rest/services/RASTER) | 1977 and 2000 | Boulder County only |
+| [Jefferson County image services](https://gisportal.jeffco.us/image/rest/services) | DRAPP 2006–2022 | Jefferson County only, and nothing before 2006 |
+| [Lakewood](https://egis.lakewood.org/server/rest/services) | 2018 and 2020 | Nothing before 2000 |
+| [State of Colorado public imagery on AWS](https://registry.opendata.aws/colorado-imagery/) | NAIP 2005 on, DRAPP 2010 on; its historic folders are the Arkansas basin | Nothing for Denver before 2005 |
+| ArcGIS Online catalogue, searched by text and by a box over central Denver | Only the layers above | — |
+| [historicaerials.com](https://historicaerials.com/terms) | A commercial viewer | Its terms forbid displaying or redistributing the imagery |
+
+The one route found to more Denver years on the timeline is the USGS orthophoto
+quadrangles: a USGS account to fetch them, then tiles baked and hosted for the page.
+No other georeferenced public copy of Denver between 1934 and 2000 turned up.
+
 ## How to know it is right
 
 - `npm run smoke` passes.
