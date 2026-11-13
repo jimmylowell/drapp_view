@@ -9,7 +9,7 @@
 - The tile index is baked into `data/index/` (run `node scripts/bake_index.mjs` to refresh). DRCOG's live query hung for an hour on 2026-11-12 and would have stopped every older year.
 - Streamed years are tiles, never a window (Jimmy, 2026-11-06). Code is MIT (Jimmy, 2026-11-06).
 
-**Next.** Jimmy's look at the rebuilt page. A merge goes live only by `wrangler pages deploy` of `index.html`, `favicon.svg`, `css/`, `js/` and `data/` to project `drapp`.
+**Next.** Jimmy's look at the rebuilt page. A merge goes live only by `wrangler pages deploy` of `index.html`, `favicon.svg`, `css/`, `js/` and `data/` to project `drapp`. Pages serves the scripts with a four-hour cache, so `index.html` links each one with `?v=` and a date: change that date in the same commit as any script or stylesheet change, or a returning browser runs the new page with old scripts.
 
 **Open.**
 - DRCOG's bucket now has a `2024/` folder of archive tiles; the page does not use it (2024 is tiles).
