@@ -1,5 +1,7 @@
 # How an image loads
 
+**This file is history.** The page was rebuilt on 2026-11-12: one layer, a timeline, reads sized to a data budget, a baked tile index. What is true now is in [design.md](design.md). Everything below describes earlier versions (the square, "Load this view", the base map picker), kept for the measurements and the reasons.
+
 Written 2026-11-05 after Jimmy's notes on the phone: "I'm confused on the feet buttons
 what they do and I didn't really quite realize the date stuff was going on either. Need
 a better way to tell what layer I'm looking at when they're loading. Can the default

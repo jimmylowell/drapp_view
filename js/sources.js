@@ -1,7 +1,8 @@
 /* Where each year comes from. Verified 2026-09-07; see README for the
    inventory.
 
-   DRAPP years (2002–2024) have `stream` and/or `archive`:
+   DRAPP years (2002–2026) have `stream` and/or `archive`; 2026 is DRCOG's
+   interim mosaic, the service Sanborn names `DRCOG_Interim_2026_unsecured`:
      `stream`  an ArcGIS ImageServer that renders any bbox region-wide.
      `archive` what the raw tiles on DRCOG's S3 bucket are:
        'tif'  GeoTIFF the browser can window into (uncompressed strips or tiles)
@@ -29,8 +30,10 @@
   const INDEX = 'https://gis.drcog.org/server/rest/services/RDC/TIFF_{Y}_INDEX/MapServer/0';
 
   /* Arapahoe County publishes one dynamic layer per flight in a single map
-     service, 1998 to 2026 — 2026 is newer than anything DRCOG has released.
-     1998 covers only the western, built-up part of the county. */
+     service, 1998 to 2026. Inside the county that makes every DRAPP year a
+     plain tile layer, including the ones that are otherwise a row-by-row read
+     of the archive (2004-2016) or download-only (2002, 2008). 1998 covers
+     only the western, built-up part of the county. */
   const ARAPAHOE = 'https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer';
   const ARAPAHOE_HOME = 'https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer';
   const arapahoe = (layer, cover, res, note) => ({
@@ -98,18 +101,18 @@
   /* `label` is what the menu shows when the key is a stand-in: the decade
      caches carry no single date. */
   const SOURCES = {
-    2026: { providers: [arapahoe(0, ARAPAHOE_COUNTY, 3, '(March 2026)')] },
+    2026: { stream: SANBORN + 'DRCOG_2026/DRCOG_Interim_2026_unsecured/ImageServer', archive: null, interim: true },
     2024: { stream: SANBORN + 'DRCOG_2024/DRCOG_Final_Ortho_2024/ImageServer', archive: null },
     2022: { stream: SANBORN + 'DRCOG_2022/Mosaics_2022/ImageServer', archive: 'tif', layout: LAYOUT_3IN },
     2020: { stream: SANBORN + 'DRCOG_2020/Orthos_3in_6in_12in/ImageServer', archive: 'tif', layout: LAYOUT_3IN },
     2018: { stream: SANBORN + 'DRCOG_2018/Orthos_3in_6in_12in/ImageServer', archive: 'tif', layout: LAYOUT_3IN },
-    2016: { archive: 'tif', layout: LAYOUT_3IN },
-    2014: { archive: 'tif', layout: LAYOUT_3IN },
-    2012: { archive: 'tif', layout: LAYOUT_2012 },
-    2010: { archive: 'tif', layout: LAYOUT_2010 },
+    2016: { archive: 'tif', layout: LAYOUT_3IN, providers: [arapahoe(5, ARAPAHOE_COUNTY, 6)] },
+    2014: { archive: 'tif', layout: LAYOUT_3IN, providers: [arapahoe(6, ARAPAHOE_COUNTY, 6)] },
+    2012: { archive: 'tif', layout: LAYOUT_2012, providers: [arapahoe(7, ARAPAHOE_COUNTY, 6)] },
+    2010: { archive: 'tif', layout: LAYOUT_2010, providers: [arapahoe(8, ARAPAHOE_COUNTY, 6)] },
     2008: { archive: 'sid', providers: [arapahoe(9, ARAPAHOE_COUNTY, 6)] },
-    2006: { archive: 'tif', layout: LAYOUT_2006 },
-    2004: { archive: 'tif', layout: LAYOUT_2004 },
+    2006: { archive: 'tif', layout: LAYOUT_2006, providers: [arapahoe(10, ARAPAHOE_COUNTY, 6)] },
+    2004: { archive: 'tif', layout: LAYOUT_2004, providers: [arapahoe(11, ARAPAHOE_COUNTY, 6)] },
     2002: { archive: 'jp2', providers: [arapahoe(12, [39.5444, -105.0731, 39.77, -104.2358], 6)] },
     2000: { providers: [
       arapahoe(13, [39.5381, -105.0729, 39.7668, -103.6836], 12),

@@ -1,9 +1,22 @@
 # Handoff
 
-**State.** drapp.myjimmycloud.com is a Cloudflare Pages direct upload (project `drapp`). Streamed years (2018, 2020, 2022, 2024) are tiles at the map's own zoom, 3 in at the finest (`streamLayer()` in `js/basemaps.js`, `showTiles()` in `js/app.js`); older years load for the view on screen through "Load this view" or "Every year here". Since 2026-11-11 a year picked from the menu is the one "Load this view" offers (before, after one older year had loaded, the prompt kept offering that year and 2004 never came); 2002 and 2008 downtown say download-only instead of blaming Arapahoe County; 2004 and 2006 say 1 ft, which their files are. What exists before 2006, by place, and the base-map answer: [docs/loading.md](docs/loading.md), *Years before 2006*.
+**State.** drapp.myjimmycloud.com is a Cloudflare Pages direct upload (project `drapp`). The page was rebuilt on 2026-11-12: the photograph fills the screen, the year on show is the only layer, and a timeline along the bottom lists the years that exist where the map is. 2018–2026 are tiles everywhere (2026 is DRCOG's interim mosaic, new on Sanborn's server); inside Arapahoe County every year back to 1998 is tiles; 2004–2016 elsewhere are read out of DRCOG's archive for the view, sized to 8 MB. Compare, play, save a photo, save every year as a zip, link to a view. The design is [docs/design.md](docs/design.md).
 
-**Decided.** Streamed years are tiles, never a window (Jimmy, 2026-11-06). Archive years stay windows for the view, because each image row is a request. Code is MIT (Jimmy, 2026-11-06). The default base map is DRCOG's newest mosaic, which under 2024 is the same pictures as the year on show.
+**Decided.**
+- One layer, no base map inside the region: the base map plus the newest mosaic plus the year on show was three fetches of the same ground, which is what made panning expensive.
+- Tiles first arrive at one image pixel per CSS pixel; full screen density (`HD`) only after the map rests at zoom 19 or closer, and it can be switched off. Reason: a tile at twice the pixels is 3–4 times the bytes.
+- An archive read is as much of the middle of the view as 8 MB buys, because the files are uncompressed and a neighbourhood at screen detail is tens of megabytes. Picking a year okays one read; a pan never reads.
+- The tile index is baked into `data/index/` (run `node scripts/bake_index.mjs` to refresh). DRCOG's live query hung for an hour on 2026-11-12 and would have stopped every older year.
+- Streamed years are tiles, never a window (Jimmy, 2026-11-06). Code is MIT (Jimmy, 2026-11-06).
 
-**Next.** Jimmy wants "a way to see the increased detail of the aerial photos compared to base map" (2026-11-11). The cheap answer is picking *Bing aerial* or *Esri world imagery* as the base map (about 9 in a pixel against DRAPP's 3 in); making one of them the default, or a side-by-side, changes the look and waits for his say. PR #1 (an after-the-fact design note) is still open. A merge goes live only by `wrangler pages deploy` to project `drapp`.
+**Next.** Jimmy's look at the rebuilt page. A merge goes live only by `wrangler pages deploy` of `index.html`, `favicon.svg`, `css/`, `js/` and `data/` to project `drapp`.
 
-**Open.** DRCOG's 2006 tile index says "6 Inch" for tiles whose files are 1 ft; the menu shows the index's value. 2004 tile `3075375_1695645` (Golden) is indexed but missing from DRCOG's bucket. `README.md` still describes the 150–1200 ft square (lines 23 and 100–112) and GitHub Pages under *Deploy*; it is Jimmy's to reword.
+**Open.**
+- DRCOG's bucket now has a `2024/` folder of archive tiles; the page does not use it (2024 is tiles).
+- 2004 tile `3075375_1695645` (Golden) is indexed but missing from DRCOG's bucket.
+- The 2010 index file is 1.4 MB (187 KB compressed) because 2010 was cut into quarter-section tiles.
+- Looked for 2004–2016 as a map service for Denver itself and found none that answers: MapMart's `DRCOG/Denver_CO_{year}` services (which Littleton's portal points at) no longer resolve, and denvergov.org's image services reset the connection.
+
+**Over to you.**
+- `README.md` describes the page before the rebuild (the square, the base map picker, GitHub Pages). It is Jimmy's to reword; `docs/design.md` has the current facts.
+- PR #1 (an after-the-fact design note for the old page) is still open and is overtaken by `docs/design.md`; closing it is his.
