@@ -17,6 +17,4 @@
 - The 2010 index file is 1.4 MB (187 KB compressed) because 2010 was cut into quarter-section tiles.
 - Looked for 2004–2016 as a map service for Denver itself and found none that answers: MapMart's `DRCOG/Denver_CO_{year}` services (which Littleton's portal points at) no longer resolve, and denvergov.org's image services reset the connection.
 
-**Over to you.**
-- `README.md` describes the page before the rebuild (the square, the base map picker, GitHub Pages). It is Jimmy's to reword; `docs/design.md` has the current facts.
-- PR #1 (an after-the-fact design note for the old page) is still open and is overtaken by `docs/design.md`; closing it is his.
+**Over to you.** Nothing.
