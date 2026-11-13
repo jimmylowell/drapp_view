@@ -23,6 +23,7 @@
   const R = 20037508.342789244;
   const FT = 0.3048;
   const STORE = 'drapp-tiles-v1';
+  const TIMEOUT = 20000;
   const MAX_KEPT = 6000;                 // tiles kept between visits; the oldest fifth goes when it is passed
   const dpr = () => Math.min(2, window.devicePixelRatio || 1);
 
@@ -72,9 +73,25 @@
         if (hit) { const b = await hit.blob(); count(b.size, true); return b; }
       } catch (e) { /* fall through to the network */ }
     }
-    const r = await fetch(url, { signal, mode: 'cors', credentials: 'omit' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const b = await r.blob();
+    /* A server that accepts the request and then says nothing would leave a
+       tile "on its way" for ever; twenty seconds and it counts as failed. */
+    const ctl = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, TIMEOUT);
+    const stop = () => ctl.abort();
+    if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', stop, { once: true }); }
+    let b;
+    try {
+      const r = await fetch(url, { signal: ctl.signal, mode: 'cors', credentials: 'omit' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      b = await r.blob();
+    } catch (e) {
+      if (timedOut) throw new Error('timed out');
+      throw e;
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', stop);
+    }
     count(b.size, false);
     if (c && keep && b.size) c.put(url, new Response(b, { headers: { 'Content-Type': b.type || 'image/jpeg' } })).catch(() => {});
     return b;

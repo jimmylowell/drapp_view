@@ -28,6 +28,7 @@
   const MAX_BYTES = 40e6;          // past this the view is too wide to read: zoom in
   const MAX_PX = 4096;             // a read, or a saved photo, is at most this many pixels a side
   const OV_MAX = 4096;
+  const MIN_BLOCK = 200;           // a read smaller than this many screen pixels a side is not worth making
   const PATCHES_KEPT = 5;          // per year, in memory
   const SHARPEN_ZOOM = 19;         // full screen detail is asked for from here in, once the map rests
   const HOME = { lat: 39.753227, lon: -105.000094, z: 17 };     // Union Station
@@ -271,15 +272,19 @@
     }
     const patch = patchUnder(s.year, vb);
     const reading = state.read && state.read.year === s.year;
+    const c = map.getCenter();
+    const canRead = src.archive === 'tif' && proj.inRegion({ x: vb.cx, y: vb.cy });
+    /* Tiles still on their way hold the verdict back, except where the only
+       tile source is Arapahoe County's and this spot is known to be outside
+       it: those tiles will come back blank, so the read need not wait. */
+    const outside = canRead && v.layers.every((l) => l.options.provider && l.options.provider.credit === ARAPAHOE) && inArapahoe(c.lat, c.lng) === false;
     let mode;
     if (wide) mode = 'tiles';
-    else if (cov.pending) mode = 'checking';
+    else if (cov.pending && !outside && !patch) mode = 'checking';
     else if (cov.good && !cov.flat && !cov.failed && whole) mode = 'tiles';
     else if (patch) mode = 'patch';
     else if (cov.good > cov.flat + cov.failed) mode = 'partial';
     else mode = 'missing';
-    const c = map.getCenter();
-    const canRead = src.archive === 'tif' && proj.inRegion({ x: vb.cx, y: vb.cy });
     return { mode, cov, patch, used, reading, canRead, lat: c.lat, lon: c.lng, vb };
   }
 
@@ -329,21 +334,27 @@
     const vb = viewBox(), src = S[year];
     const floor = src.layout ? src.layout.res : SRC_RES;
     const css = cssRes();
-    let res = Math.max(floor, css / dpr());
-    if (res < 1.5 * floor) res = floor;
-    res = proj.snapRes(res);
-    let w = vb.w, h = vb.h, win, est;
-    for (let n = 0; n < 6; n++) {
-      const k = Math.min(1, MAX_PX * res / w, MAX_PX * res / h);
-      w *= k; h *= k;
-      win = proj.windowBox(vb.cx - w / 2, vb.cy - h / 2, vb.cx + w / 2, vb.cy + h / 2, res);
-      est = estimate.forYear(year, win, idx, lat, lon);
-      if (!est || est.bytes == null) return { win, est, tooSmall: true };
-      if (est.bytes <= budget) break;
-      const f = Math.sqrt(budget / est.bytes) * 0.96;
-      w *= f; h *= f;
-    }
-    return { win, est, part: (w * h) / (vb.w * vb.h) < 0.85, tooSmall: Math.min(w, h) / css < 260 || est.bytes > budget * 1.2 };
+    const at = (density) => {
+      let res = Math.max(floor, css / density);
+      if (res < 1.5 * floor) res = floor;
+      res = proj.snapRes(res);
+      let w = vb.w, h = vb.h, win, est;
+      for (let n = 0; n < 6; n++) {
+        const k = Math.min(1, MAX_PX * res / w, MAX_PX * res / h);
+        w *= k; h *= k;
+        win = proj.windowBox(vb.cx - w / 2, vb.cy - h / 2, vb.cx + w / 2, vb.cy + h / 2, res);
+        est = estimate.forYear(year, win, idx, lat, lon);
+        if (!est || est.bytes == null) return { win, est, part: true, tooSmall: true };
+        if (est.bytes <= budget) break;
+        const f = Math.sqrt(budget / est.bytes) * 0.96;
+        w *= f; h *= f;
+      }
+      return { win, est, part: (w * h) / (vb.w * vb.h) < 0.85, tooSmall: Math.min(w, h) / css < MIN_BLOCK || est.bytes > budget * 1.2 };
+    };
+    /* The screen's own density if that covers the view; otherwise one image
+       pixel per CSS pixel, which buys twice the ground for the same bytes. */
+    const fine = at(dpr());
+    return fine.part && dpr() > 1 ? at(1) : fine;
   }
 
   async function read(year, plan, idx) {
@@ -417,11 +428,9 @@
     if (state.read && state.read.error && state.read.year === s.year) {
       return set(`<span>${label} did not load: ${state.read.error}</span><button type="button" data-act="read">Try again</button>`, 'warn');
     }
-    const sharper = st.mode === 'patch' && st.patch.win.res > 1.5 * Math.max(S[s.year].layout ? S[s.year].layout.res : SRC_RES, cssRes() / dpr());
-    const rest = st.mode === 'patch' && !sharper && share(st.patch.win, st.vb) < 0.7;
-    if (st.mode === 'patch' && !sharper && !rest) return set('');
+    const have = st.mode === 'patch' ? st.patch : null;
     if (!st.canRead) {
-      if (st.mode === 'partial' || st.mode === 'patch') return set('');
+      if (st.mode === 'partial' || have) return set('');
       const areas = [...new Set((S[s.year].providers || []).map((p) => p.area))];
       const why = S[s.year].archive === 'jp2' || S[s.year].archive === 'sid'
         ? `${label} is online only for Arapahoe County. DRCOG's own ${label} files are ${S[s.year].archive === 'jp2' ? 'JPEG 2000' : 'MrSID'}, which a browser cannot open.`
@@ -439,24 +448,38 @@
     if (!idx.some((t) => t.kind === 'tif' && t.image)) return set(`<span>DRCOG has no ${label} photo of this spot.</span>`, 'note');
     const auto = state.wantRead === s.year;
     state.wantRead = null;
-    if (rest) {
-      /* A block in the middle is loaded; the whole view is on offer, quietly. */
+    if (have) {
+      /* Something is loaded under the middle of the view. Two quiet offers:
+         the same view in more detail, when zooming in has made that
+         affordable, or the remainder of the view around a block. */
+      const again = readPlan(s.year, idx, st.lat, st.lon);
+      if (!again.tooSmall && !again.part && again.win.res <= have.win.res / 1.5) {
+        pending = { year: s.year, plan: again, idx };
+        return set(`<button type="button" class="go" data-act="read">Sharpen ${label} here<small>≈${mb(again.est.bytes)} · ${resLabel(again.win.res)} a pixel</small></button>`, 'more');
+      }
+      if (share(have.win, st.vb) >= 0.7) return set('');
       const whole = readPlan(s.year, idx, st.lat, st.lon, MAX_BYTES);
-      if (whole.tooSmall || whole.part) return set('');
+      if (whole.tooSmall || whole.part || whole.win.res > have.win.res * 1.01) return set('');
       pending = { year: s.year, plan: whole, idx };
       return set(`<button type="button" class="go" data-act="read">Load the whole view<small>≈${mb(whole.est.bytes)}</small></button>`, 'more');
     }
     const plan = readPlan(s.year, idx, st.lat, st.lon);
-    if (plan.tooSmall) return set(`<span>Zoom in to load ${label} — from this far out it is too much of DRCOG's raw archive.</span>`, 'note');
-    if (auto && !sharper) return read(s.year, plan, idx);
+    if (plan.tooSmall) {
+      /* From this far out a read would be a postage stamp. A year just picked
+         goes in a level at a time until it fits; after a pan, the button does. */
+      if (auto && map.getZoom() < 20) { state.wantRead = s.year; zoomedFor = s.year; map.setZoom(map.getZoom() + 1); return set(`<span class="spin"></span><span>Moving in to where ${label} can load…</span>`, 'busy'); }
+      return set(`<button type="button" class="go" data-act="closer">Zoom in to load ${label}<small>too much raw archive from this far out</small></button>`, 'more');
+    }
+    if (auto) return read(s.year, plan, idx);
     pending = { year: s.year, plan, idx };
-    set(`<button type="button" class="go" data-act="read">${sharper ? `Sharpen ${label} here` : `Load ${label} here`}<small>≈${mb(plan.est.bytes)}${plan.part ? ' · the middle of the view' : ''}</small></button>`, 'offer');
+    set(`<button type="button" class="go" data-act="read">Load ${label} here<small>≈${mb(plan.est.bytes)}${plan.part ? ' · the middle of the view' : ''}</small></button>`, 'offer');
   }
-  let pending = null;
+  let pending = null, zoomedFor = null;
   prompt.addEventListener('click', (ev) => {
     const b = ev.target.closest('button');
     if (!b) return;
     if (b.dataset.act === 'cancel') { cancelRead(); assess(); }
+    else if (b.dataset.act === 'closer') { state.wantRead = state.sides[state.active].year; map.setZoom(map.getZoom() + 1); }
     else if (b.dataset.act === 'read' && pending && pending.year === state.sides[state.active].year) read(pending.year, pending.plan, pending.idx);
     else { state.read = null; state.wantRead = state.sides[state.active].year; assess(); }
   });
@@ -539,6 +562,7 @@
   /* ---------- the words ---------- */
   function sourceLine(i) {
     const s = state.sides[i], st = lastAssess[i] || {}, src = S[s.year];
+    if (st.reading && st.mode !== 'tiles') return 'reading from DRCOG\'s archive…';
     if (st.mode === 'patch') return ['DRCOG archive', resLabel(st.patch.win.res) + ' a pixel', st.patch.meta].filter(Boolean).join(' · ');
     if (src.stream) {
       const sharp = prefs.sharp && dpr() >= 1.5 && map.getZoom() >= SHARPEN_ZOOM;
@@ -548,7 +572,6 @@
     }
     const p = st.used && st.used.options.provider;
     if (p && (st.mode === 'tiles' || st.mode === 'partial')) return [p.credit, p.src].filter(Boolean).join(' · ');
-    if (st.reading) return 'reading from DRCOG\'s archive';
     if (st.mode === 'checking' || st.mode === 'pending') return 'loading…';
     return st.canRead ? `not loaded here · ${state.contextYear} underneath, dimmed` : `not here · ${state.contextYear} underneath, dimmed`;
   }
@@ -922,6 +945,19 @@
     map.on('moveend', () => { clipSides(); assessSoon(); writeHash(); restSoon(); });
     map.on('movestart', () => clearTimeout(sharpTimer));
     map.on('resize', () => { clipSides(); assessSoon(); });
+    /* A link pasted over this one, or the back button. Our own updates use
+       replaceState, which does not fire this. */
+    window.addEventListener('hashchange', () => {
+      const n = readHash();
+      if (n.years.length) {
+        for (const v of views.values()) if (v.side >= n.years.length) unmount(v);
+        state.sides = n.years.map((y) => ({ year: y, view: null }));
+        state.active = 0; state.wantRead = n.years[0]; chipSig = '';
+        $('#compare').classList.toggle('on', state.sides.length === 2);
+      }
+      if (n.lat != null) map.setView([n.lat, n.lon], n.z, { animate: false });
+      showSides();
+    });
     showSides();
     restSoon();
     if (h.lat == null && h.q) { input.value = h.q; form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit')); }

@@ -78,10 +78,13 @@ The archive files are uncompressed, one image row to a request, four bytes a pix
 the 3 in years. A read costs the ground covered times the detail, and skipping rows
 does not skip the bytes across a row. So:
 
-- A read is at the screen's own density, never finer than the file.
+- A read is at the screen's own density if 8 MB covers the view that way, otherwise at
+  one image pixel per CSS pixel; never finer than the file.
 - It is **as much of the middle of the view as 8 MB buys** (`readPlan` in `js/app.js`):
-  the whole screen when zoomed in close, a block in the middle further out. Under 260
-  screen pixels a side it is not worth it and the page says to zoom in.
+  the whole screen when zoomed in close, a block in the middle further out.
+- Under 200 screen pixels a side a block is not worth it. A year that was just picked
+  then moves the map in a level at a time until it fits, and loads; after a pan the
+  button reads *Zoom in to load*.
 - **Picking a year is the okay for one read.** After a pan or zoom nothing is read
   until *Load here* is tapped, and the button says the size first.
 - With a block loaded, *Load the whole view* offers the rest, up to 40 MB, with its size.
