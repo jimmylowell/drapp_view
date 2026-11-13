@@ -1,1017 +1,968 @@
-/* Page logic: the year on show over the base map, and "load this view" for
-   the years that cost a request per image row.
+/* Page logic: one map, one year on show, a timeline along the bottom.
 
-   Two kinds of year (2026-11-06; Jimmy: "I still don't understand why
-   download a lower res version at all?"):
-     - Streamed years (2018–2024) are tiles, like any web map: DRCOG's
-       mosaic is asked for each tile at the map's own zoom and the screen's
-       density, 3 in a pixel at the finest (js/basemaps.js, streamLayer). No
-       square, no coarse copy, nothing to tap: zoom in and the pixels follow.
-     - Every other year is a window read for the view on screen: older DRAPP
-       years from the raw GeoTIFFs, one range request per image row, and the
-       county and library flights from their own services. An address, or
-       "Every year here", loads them for the view; after a pan, "Load this
-       view" shows the cost per year and nothing is fetched until it is
-       tapped. That is what keeps a curious pan from turning into thousands of
-       range requests against DRCOG's bucket.
+   What the page is for (Jimmy, 2026-11-12): "a clean way to view and show off
+   the high res drapp stuff for denver residents. the timeline was a secondary
+   feature, but really a big one … user should be able to browse around without
+   downloading/killing bandwidth, find an area they want to explore through the
+   years, and be able to save photos downloaded."
 
-   Resolution of a window: it sits on DRAPP's 3-inch grid (js/proj.js) so the
-   source pixels arrive untouched, and the map overlay is re-warped from the
-   lossless state-plane canvas at the screen's own pixel density whenever the
-   zoom changes (js/warp.js). */
+   Two kinds of year, and the page hides the difference as far as it can:
+     - A year some server renders region-wide is a tile layer (js/tiles.js):
+       DRCOG's 2018-2026 mosaics everywhere, every flight back to 1998 inside
+       Arapahoe County, and the older scans where an agency has them online.
+       Picking one of these is instant.
+     - 2004-2016 everywhere else exist only as DRCOG's raw GeoTIFFs. Picking
+       one reads the view on screen out of the archive (js/tiffwindow.js) and
+       leaves it on the map as a patch. Picking the year is the okay for that
+       one view; after a pan nothing more is read until "Load here" is tapped,
+       and the button says what it will cost first.
+
+   Under a year that does not cover the whole view, the last mosaic looked at
+   is drawn dimmed, so there is always ground to steer by. */
 (function () {
-  const { proj, sources, tileindex, imageserver, tiffwindow, geocode, cache, warp, basemaps, providers, estimate } = DRAPP;
-  const SRC_RES = proj.GRID;       // 0.25 ft: DRAPP's finest ground sample
-  /* An archive window loaded without asking (an address, "Every year here")
-     is at most this many pixels a side; a phone's view at 3 in fits. Past it
-     the window is coarser and the label says to zoom in and load the view. */
-  const CAP_ARCHIVE = 2048;
-  const CAP_VIEW = 4096;           // a loaded view is at most this many pixels a side; coarser past that
-  const VIEW_MAX_FT = 10560;       // 2 miles wide is the most a view load will offer
-  const VIEW_MIN_ZOOM = 14;
-  const OV_MAX = 4096;             // overlay canvas of the year on show, pixels a side
-  const OV_IDLE = 1024;            // years not on show are kept at most this big
-  const CELL = 768;                // contact-sheet cell
-  const R = 20037508.342789244;    // Web Mercator half-circumference, metres
-  const tiled = (year) => !!sources.SOURCES[year].stream;
-
-  const state = { lat: null, lon: null, label: '', fresh: false, selected: null, opacity: 1, load: null };
-  let controller = null;           // aborts the in-flight load
-  let queue = [];                  // archive years still to read, front first
-  const recs = new Map();          // year → record
-  let map, box, pin, base;
-  const extraCredit = 'Historical: ' + [...new Set(sources.YEARS.flatMap((y) => (sources.SOURCES[y].providers || []).map((p) => p.credit)))].join(', ');
+  const { proj, sources, tileindex, tiffwindow, geocode, cache, warp, providers, estimate, tiles } = DRAPP;
+  const S = sources.SOURCES;
+  const R = 20037508.342789244;
+  const SRC_RES = proj.GRID;
+  const AUTO_BYTES = 8e6;          // a picked year reads the view without asking up to this much
+  const MAX_BYTES = 40e6;          // past this the view is too wide to read: zoom in
+  const MAX_PX = 4096;             // a read, or a saved photo, is at most this many pixels a side
+  const OV_MAX = 4096;
+  const MIN_BLOCK = 200;           // a read smaller than this many screen pixels a side is not worth making
+  const PATCHES_KEPT = 5;          // per year, in memory
+  const SHARPEN_ZOOM = 19;         // full screen detail is asked for from here in, once the map rests
+  const HOME = { lat: 39.753227, lon: -105.000094, z: 17 };     // Union Station
+  const PLACES = [
+    ['Union Station', 39.753227, -105.000094, 18],
+    ['Coors Field', 39.756031, -104.992928, 18],
+    ['State Capitol', 39.73925, -104.98485, 19],
+    ['Empower Field at Mile High', 39.743952, -105.019222, 17],
+    ['Elitch Gardens', 39.747321, -105.014085, 17],
+    ['Washington Park', 39.702081, -104.971033, 16],
+    ['Red Rocks Amphitheatre', 39.665391, -105.205717, 18],
+    ['Denver International Airport', 39.8494, -104.6737, 15],
+    ['Cherry Creek Dam', 39.651404, -104.854944, 15],
+    ['Pearl Street, Boulder', 40.018565, -105.276728, 18],
+  ];
 
   const $ = (sel, el = document) => el.querySelector(sel);
-  const status = $('#status');
-  const form = $('#addr-form');
-  const input = $('#addr');
-  const menu = $('#year-menu');
-  const yearBtn = $('#year-btn');
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const dpr = () => Math.min(2, window.devicePixelRatio || 1);
+  const mb = estimate.mb;
 
-  /* ---------- map ---------- */
-  function initMap() {
-    map = L.map('map', { zoomControl: false, maxZoom: 22, zoomSnap: 0.5 }).setView([39.74, -105.0], 10);
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
-    map.attributionControl.setPrefix(false);
-    map.attributionControl.addAttribution(
-      'DRAPP imagery <a href="https://data.drcog.org" rel="noopener">DRCOG</a> (CC BY 3.0)');
-    map.createPane('marks').style.zIndex = 450;   // outline and pin above the imagery overlays
-    map.createPane('years').style.zIndex = 390;   // a streamed year's tiles: over the base map, under a loaded window
-    base = basemaps.init(map, { button: $('#base-btn'), menu: $('#base-menu'), onChange: () => paintBadge() });
-    map.on('zoomend', () => {
-      const cur = currentYear();
-      if (cur != null) fitDensity(recs.get(cur));
-      scheduleViewCheck();
-    });
-    map.on('moveend resize', scheduleViewCheck);
+  const prefs = {
+    get sharp() { try { const v = localStorage.getItem('drapp.sharp'); if (v != null) return v === '1'; } catch (e) { /* private mode */ }
+      return !(navigator.connection && navigator.connection.saveData); },
+    set sharp(v) { try { localStorage.setItem('drapp.sharp', v ? '1' : '0'); } catch (e) { /* private mode */ } },
+  };
+
+  const state = {
+    sides: [{ year: 2024, view: null }],   // one side normally; two while comparing (left, right)
+    active: 0,                               // the side the timeline drives
+    split: 0.5,
+    contextYear: 2024,
+    playing: 0,
+    read: null,                              // the archive read in flight: {year, ctl, frac, note}
+    wantRead: null,                          // a year just picked: its view may be read without asking
+  };
+  const recs = new Map();                    // year → {year, patches: [], date: {box, text}}
+  const views = new Map();                   // `${side}:${year}` → view
+  let map, contextLayer = null, baseLayer, regionLL;
+
+  /* ---------- geometry ---------- */
+  function regionBounds() {
+    const r = proj.REGION;
+    const c = [[r.xmin, r.ymin], [r.xmax, r.ymin], [r.xmin, r.ymax], [r.xmax, r.ymax]].map(([x, y]) => proj.toLonLat(x, y));
+    return L.latLngBounds([Math.min(...c.map((p) => p.lat)), Math.min(...c.map((p) => p.lon))], [Math.max(...c.map((p) => p.lat)), Math.max(...c.map((p) => p.lon))]);
   }
+  const coverBounds = (p) => L.latLngBounds([p.cover[0], p.cover[1]], [p.cover[2], p.cover[3]]);
 
-  const dpr = () => window.devicePixelRatio || 1;
-
-  /* Ground feet per device pixel at the map centre, at the current zoom. */
-  function deviceRes() {
+  /* Ground feet per CSS pixel at the map centre. */
+  function cssRes() {
     const lat = map.getCenter().lat;
-    const mPerCss = (2 * R / 256 / 2 ** map.getZoom()) * Math.cos(lat * Math.PI / 180);
-    return mPerCss / dpr() / 0.3048;
+    return (2 * R / 256 / 2 ** map.getZoom()) * Math.cos(lat * Math.PI / 180) / 0.3048;
   }
-
-  /* Ground feet per pixel of the streamed tiles on screen now: the tile zoom
-     Leaflet picks (the map's zoom rounded, no deeper than the layer's native
-     zoom), at the size js/basemaps.js asks each tile for. */
-  function tileRes(layer) {
-    const o = layer.options, z = map.getZoom();
-    const tz = Math.max(o.minZoom, Math.min(o.maxNativeZoom, Math.round(z)));
-    const sz = 2 * R / (2 ** tz * 256 / o.tileSize);
-    const c = map.getCenter();
-    const my = map.options.crs.project(c).y;
-    const px = basemaps.tilePx(o.tileSize, sz, my, o.nativeFt);
-    return sz * Math.cos(c.lat * Math.PI / 180) / px / 0.3048;
-  }
-
-  /* The map view as a state-plane window at the screen's density, no finer
-     than the source, no bigger than CAP_VIEW a side. */
-  function viewWindow(atRes) {
+  /* The map view as a state-plane box (no pixel grid yet). */
+  function viewBox() {
     const b = map.getBounds();
     const pts = [[b.getWest(), b.getSouth()], [b.getEast(), b.getSouth()], [b.getEast(), b.getNorth()], [b.getWest(), b.getNorth()]]
       .map(([lon, lat]) => proj.toStatePlane(lon, lat));
     const xmin = Math.min(...pts.map((p) => p.x)), xmax = Math.max(...pts.map((p) => p.x));
     const ymin = Math.min(...pts.map((p) => p.y)), ymax = Math.max(...pts.map((p) => p.y));
-    /* The screen's pixel snaps up to the next grid step, so a phone at the
-       3-inch zoom (3.2 in a device pixel) would read at 6 in; anything under
-       1.5 times the source's pixel takes the source's own 3 in instead. */
-    const dev = deviceRes();
-    let res = proj.snapRes(atRes || (dev < 1.5 * SRC_RES ? SRC_RES : dev));
-    while ((xmax - xmin) / res > CAP_VIEW || (ymax - ymin) / res > CAP_VIEW) res = proj.snapRes(res * 2);
-    return proj.windowBox(xmin, ymin, xmax, ymax, res);
+    return { xmin, ymin, xmax, ymax, w: xmax - xmin, h: ymax - ymin, cx: (xmin + xmax) / 2, cy: (ymin + ymax) / 2 };
   }
-
-  /* Does window `w` serve view `v`: centre inside, at least half the area,
-     and not much coarser than the screen (when finer exists). */
-  function covers(w, v) {
-    if (!over(w, v)) return false;
-    if (w.res > SRC_RES && w.res >= 1.5 * v.res) return false;
-    return true;
-  }
-  /* Has `rec` already been tried for view `v`? Loaded: its window is under the
-     view at least as fine as that year would load it now, so a 1 ft flight
-     (1933, the county years) is not offered again just because the screen
-     could show finer. Failed or download-only: tried here, nothing to retry. */
-  function doneHere(rec, v) {
-    if (!over(rec.win, v)) return false;
-    if (rec.status === 'failed' || rec.status === 'download') return true;
-    if (rec.status !== 'ready') return false;
-    if (covers(rec.win, v)) return true;
-    const { lat, lon } = proj.toLonLat(v.cx, v.cy);
-    return rec.win.res <= winFor(rec.year, v, null, lat, lon).res * 1.001;
-  }
-  /* Window `w` is under the view: its centre and at least half its area. */
+  /* Window `w` is under view `v`: the middle of the view is inside it. */
   function over(w, v) {
-    if (!w) return false;
-    if (v.cx < w.xmin || v.cx > w.xmax || v.cy < w.ymin || v.cy > w.ymax) return false;
+    return v.cx >= w.xmin && v.cx <= w.xmax && v.cy >= w.ymin && v.cy <= w.ymax;
+  }
+  /* How much of view `v` window `w` covers, 0 to 1. */
+  function share(w, v) {
     const ix = Math.max(0, Math.min(w.xmax, v.xmax) - Math.max(w.xmin, v.xmin));
     const iy = Math.max(0, Math.min(w.ymax, v.ymax) - Math.max(w.ymin, v.ymin));
-    return ix * iy >= 0.5 * v.w * v.h;
+    return ix * iy / (v.w * v.h);
   }
-  /* The part of view `v` inside window `w`, on the grid at the view's density. */
-  function clip(w, v) {
-    const xmin = Math.max(w.xmin, v.xmin), xmax = Math.min(w.xmax, v.xmax);
-    const ymin = Math.max(w.ymin, v.ymin), ymax = Math.min(w.ymax, v.ymax);
-    if (xmax <= xmin || ymax <= ymin) return null;
-    return proj.windowBox(xmin, ymin, xmax, ymax, v.res);
-  }
-  /* The finest pixel a year's source has here, in feet, or null if unknown. */
-  function srcResOf(year, lat, lon) {
-    const src = sources.SOURCES[year];
-    if (src.layout) return src.layout.res;
-    if (src.stream) return SRC_RES;
-    const here = (src.providers || []).filter((p) => lat == null || providers.covers(p, lat, lon));
-    return here.length ? Math.min(...here.map((p) => p.res / 12)) : null;
-  }
+  const resLabel = (res) => res < 0.96 ? `${Math.round(res * 12)} in` : res >= 10 ? `${Math.round(res)} ft` : `${+res.toFixed(1)} ft`;
 
-  /* ---------- per-year records + menu rows ---------- */
-  function makeRec(year) {
-    const row = document.createElement('div');
-    row.className = 'yrow';
-    row.dataset.year = year;
-    row.innerHTML = `
-      <button type="button" class="pick" aria-pressed="false">
-        <b>${sources.label(year)}</b><span class="st">idle</span><i class="pbar" hidden><i></i></i>
-      </button>
-      <details class="files"><summary aria-label="Files for ${sources.label(year)}">⤓</summary><ul></ul></details>`;
-    menu.querySelector('.rows').appendChild(row);
-    const canvas = document.createElement('canvas');
-    const rec = {
-      year, row, canvas,
-      pick: $('.pick', row), st: $('.st', row), bar: $('.pbar i', row), files: $('.files ul', row),
-      status: 'idle', src: '', meta: '', credit: '', tiles: [],
-      win: null, rect: null, overlay: null, ovCanvas: null, ovW: 0,
-      tiled: tiled(year), layer: null, tilesLoading: false,
-    };
-    rec.pick.addEventListener('click', () => choose(year));
-    if (rec.tiled) {
-      rec.files.innerHTML = '<li class="dim">streamed as map tiles; Save PNG keeps the view on screen</li>';
-      rec.status = 'ready'; rec.row.className = 'yrow ready';
-      rec.st.textContent = 'tiles, 3 in when zoomed in';
+  /* ---------- Arapahoe County, yes or no ----------
+     The county's service has every flight back to 1998, but its extent is a
+     rectangle that takes in half of Denver, where it answers blank. One 16 px
+     export of its newest layer says which side of the line a spot is on;
+     remembered per ~half-mile cell. */
+  const ARAPAHOE = 'Arapahoe County';
+  const gate = new Map();
+  const gateKey = (lat, lon) => `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  function inArapahoe(lat, lon) {
+    const p = S[2008].providers[0];
+    if (!providers.covers(p, lat, lon)) return false;
+    const k = gateKey(lat, lon);
+    if (gate.has(k)) return gate.get(k);
+    gate.set(k, undefined);
+    const c = proj.toStatePlane(lon, lat);
+    const q = new URLSearchParams({ bbox: [c.x - 100, c.y - 100, c.x + 100, c.y + 100].join(','), bboxSR: '2232', imageSR: '2232', size: '16,16', format: 'jpg', layers: 'show:1', f: 'image' });
+    tiles.blob(`${p.service}/export?${q}`).then(async (b) => {
+      const im = await createImageBitmap(b);
+      gate.set(k, !tiles.isFlat(im));
+    }).catch(() => {
+      /* No answer: treat as outside for now and ask again in half a minute, not in a loop. */
+      gate.set(k, false);
+      setTimeout(() => gate.delete(k), 30000);
+    }).then(() => { paintTimeline(); assessSoon(); });
+    return undefined;
+  }
+  const providerHere = (p, lat, lon) => providers.covers(p, lat, lon) && (p.credit !== ARAPAHOE || inArapahoe(lat, lon) === true);
+
+  /* How a year can be shown at a spot: 'tiles' (instant), 'read' (out of the
+     archive, for the view), or null. */
+  function how(year, lat, lon) {
+    const src = S[year];
+    if (src.stream) return regionLL.contains([lat, lon]) ? 'tiles' : null;
+    if ((src.providers || []).some((p) => providerHere(p, lat, lon))) return 'tiles';
+    if (src.archive === 'tif' && proj.inRegion(proj.toStatePlane(lon, lat))) return 'read';
+    return null;
+  }
+  const yearsHere = () => { const c = map.getCenter(); return sources.YEARS.filter((y) => how(y, c.lat, c.lng)); };
+
+  /* ---------- a year on one side of the map ---------- */
+  function rec(year) {
+    if (!recs.has(year)) recs.set(year, { year, patches: [] });
+    return recs.get(year);
+  }
+  function layerSpecs(year) {
+    const src = S[year], out = [];
+    if (src.stream) {
+      out.push({ kind: 'image', service: src.stream, nativeFt: SRC_RES, maxNativeZoom: tiles.nativeZoom(SRC_RES), bounds: regionLL, wide: true });
     }
-    return rec;
-  }
-
-  /* A streamed year's tile layer, made the first time the year is shown. */
-  function layerOf(rec) {
-    if (rec.layer) return rec.layer;
-    const l = basemaps.streamLayer(rec.year, { pane: 'years', quality: imageserver.QUALITY, yearLayer: true, opacity: state.opacity });
-    l.on('loading', () => { rec.tilesLoading = true; rec.tileErrors = 0; paintBadge(); });
-    l.on('load', () => { rec.tilesLoading = false; paintBadge(); });
-    l.on('tileerror', () => { rec.tileErrors = (rec.tileErrors || 0) + 1; });
-    rec.layer = l;
-    return l;
-  }
-
-  /* Put the year on show's tiles on the map. A year picked over another
-     streamed year goes on top, and the one under it comes off once the new
-     tiles have landed, so the screen never drops to the base map in between. */
-  function showTiles(cur) {
-    const want = cur != null && recs.get(cur).tiled ? recs.get(cur) : null;
-    const others = [...recs.values()].filter((r) => r.tiled && r !== want && r.layer && map.hasLayer(r.layer));
-    if (!want) { for (const r of others) map.removeLayer(r.layer); return; }
-    const l = layerOf(want);
-    l.setOpacity(state.opacity);
-    if (map.hasLayer(l)) return;
-    l.addTo(map);
-    l.bringToFront();
-    const drop = () => { for (const r of others) if (r.year !== currentYear() && map.hasLayer(r.layer)) map.removeLayer(r.layer); };
-    l.once('load', drop);
-    setTimeout(drop, 8000);
-  }
-
-  function setStatus(rec, status, text, frac) {
-    rec.status = status;
-    rec.row.className = 'yrow ' + status;
-    rec.st.textContent = text;
-    rec.bar.parentElement.hidden = frac == null;
-    if (frac != null) rec.bar.style.width = Math.round(frac * 100) + '%';
-    rec.frac = frac;
-    if (status !== 'loading') paintButton(); else paintBadge();
-  }
-
-  function resetRec(rec) {
-    rec.canvas.getContext('2d').clearRect(0, 0, rec.canvas.width, rec.canvas.height);
-    if (rec.overlay) { map.removeLayer(rec.overlay); rec.overlay = null; }
-    rec.win = null; rec.rect = null; rec.ovW = 0;
-    rec.src = ''; rec.meta = ''; rec.credit = ''; rec.tiles = []; rec.indexError = ''; rec.nothingHere = false;
-    rec.files.innerHTML = '<li class="dim">looking up tiles…</li>';
-    setStatus(rec, 'queued', 'queued', null);
-  }
-
-  /* Years served by another agency have no DRCOG tiles to list; say where
-     they come from instead. */
-  function fillSources(rec) {
-    rec.files.innerHTML = '';
-    for (const p of sources.SOURCES[rec.year].providers) {
-      const li = document.createElement('li');
-      li.innerHTML = `<a href="${p.home}" rel="noopener">${p.credit}</a> <span class="dim">${p.src}</span>`;
-      rec.files.appendChild(li);
-    }
-  }
-
-  function fillFiles(rec, tiles) {
-    rec.tiles = tiles;
-    rec.files.innerHTML = '';
-    if (!tiles.length) { rec.files.innerHTML = '<li class="dim">no tile indexed here</li>'; return; }
-    const res = shortRes(tiles.map((t) => t.resolution).filter(Boolean)[0]);
-    const date = tileindex.prettyDate(tiles.map((t) => t.photoDate).filter(Boolean)[0]);
-    rec.meta = [res, date].filter(Boolean).join(' · ');
-    for (const t of tiles) {
-      const li = document.createElement('li');
-      if (t.image) {
-        li.innerHTML = `<span class="tname">${t.tile}</span> <a href="${t.image}" rel="noopener">.${t.image.split('.').pop()}</a>` +
-          (t.world ? ` <a href="${t.world}" rel="noopener">.${t.world.split('.').pop()}</a>` : '');
+    for (const p of src.providers || []) {
+      if (p.kind === 'map') {
+        out.push({ kind: 'map', service: p.service, layer: p.layer, nativeFt: p.res / 12, maxNativeZoom: tiles.nativeZoom(p.res / 12), bounds: coverBounds(p), detectFlat: true, provider: p });
       } else {
-        li.innerHTML = `<span class="tname">${t.tile}</span> <span class="dim">not yet published</span>`;
+        out.push({ kind: 'xyz', service: p.url, tileSize: 256, minZoom: 9, maxNativeZoom: p.maxZoom, bounds: coverBounds(p), provider: p });
       }
-      rec.files.appendChild(li);
     }
-    if (rec.status === 'ready') setStatus(rec, 'ready', readyText(rec), null);
+    return out;
   }
-
-  const readyText = (rec) => rec.meta || 'ready';
-
-  /* "3 Inch, 6 Inch" → "3–6 in", "6 Inch" → "6 in" */
-  function shortRes(r) {
-    if (!r) return '';
-    const n = [...r.matchAll(/(\d+)\s*inch/gi)].map((m) => +m[1]);
-    if (!n.length) return r;
-    if (n.length === 1 && n[0] >= 12 && n[0] % 12 === 0) return `${n[0] / 12} ft`;
-    return (n.length > 1 ? `${Math.min(...n)}–${Math.max(...n)}` : String(n[0])) + ' in';
+  function viewOf(side, year) {
+    const key = `${side}:${year}`;
+    if (views.has(key)) return views.get(key);
+    const pane = map.createPane(`y${side}-${year}`);
+    pane.classList.add('year-pane');
+    pane.style.opacity = 0;
+    const v = { side, year, pane, paneName: `y${side}-${year}`, layers: null, overlays: new Map(), on: false };
+    views.set(key, v);
+    return v;
   }
-
-  /* ---------- overlays ---------- */
-
-  /* Redraw a year's overlay from its state-plane master at the density the
-     screen needs now: device pixels across the window, in steps of 256, up to
-     OV_MAX. Bigger than the screen wastes memory and, past 2×, sharpness (the
-     browser's own downscale is a plain bilinear). */
-  function fitDensity(rec, idle) {
-    if (!rec.overlay || !rec.rect) return;
-    const b = L.latLngBounds(warp.bounds(rec.rect));
-    const sw = map.latLngToContainerPoint(b.getSouthWest()), ne = map.latLngToContainerPoint(b.getNorthEast());
-    const want = Math.max(256, Math.ceil(Math.abs(ne.x - sw.x) * dpr() / 256) * 256);
-    const W = Math.min(idle ? OV_IDLE : OV_MAX, want);
-    if (W === rec.ovW) return;
-    warp.toMercator(rec.canvas, rec.win, rec.rect, W, rec.ovCanvas);
-    rec.ovW = W;
-  }
-
-  /* A finished window: put it on the map, fade it in if it is the one to show. */
-  function finish(rec, win, srcLabel, note) {
-    rec.src = srcLabel + (note ? ' ' + note : '');
-    rec.win = win;
-    rec.rect = warp.mercRect(win);
-    rec.ovCanvas = rec.ovCanvas || document.createElement('canvas');
-    rec.ovW = 0;
-    rec.overlay = new warp.CanvasOverlay(rec.ovCanvas, warp.bounds(rec.rect), { opacity: 0, className: 'drapp-ov', interactive: false, zIndex: 400 });
-    setStatus(rec, 'ready', readyText(rec), null);
-    const onShow = currentYear() === rec.year;
-    fitDensity(rec, !onShow);
-    rec.overlay.addTo(map);
-    showBest();
-  }
-
-  /* Which year is on top: the user's pick if it is ready, else the newest ready year. */
-  function currentYear() {
-    const ready = sources.YEARS.filter((y) => recs.get(y).status === 'ready' && (recs.get(y).overlay || recs.get(y).tiled));
-    if (!ready.length) return null;
-    if (state.selected != null && ready.includes(state.selected)) return state.selected;
-    return ready[ready.length - 1];
-  }
-  let demoteTimer = 0;
-  function showBest() {
-    const cur = currentYear();
-    if (cur != null && recs.get(cur).credit) map.attributionControl.addAttribution(extraCredit);
-    else map.attributionControl.removeAttribution(extraCredit);
-    showTiles(cur);
-    for (const rec of recs.values()) {
-      if (!rec.overlay) continue;
-      rec.overlay.setOpacity(rec.year === cur ? state.opacity : 0);
-      if (rec.year === cur) { fitDensity(rec); rec.overlay.bringToFront(); }
-    }
-    /* Once the crossfade is over, shrink whatever is no longer on show. */
-    clearTimeout(demoteTimer);
-    demoteTimer = setTimeout(() => {
-      const now = currentYear();
-      for (const rec of recs.values()) {
-        if (rec.year !== now && rec.ovW > OV_IDLE) fitDensity(rec, true);
-      }
-    }, 900);
-    paintButton();
-    scheduleViewCheck();
-  }
-  function paintButton() {
-    const cur = currentYear();
-    const want = state.selected;
-    for (const rec of recs.values()) rec.pick.setAttribute('aria-pressed', String(rec.year === (want ?? cur)));
-    if (cur == null) {
-      yearBtn.textContent = state.load == null ? 'Year' : (want ? `Year ${sources.label(want)} · loading…` : 'Year · loading…');
-    } else if (want != null && want !== cur) {
-      const r = recs.get(want);
-      yearBtn.textContent = `Year ${sources.label(cur)} · ${sources.label(want)} ${r.status === 'failed' || r.status === 'download' ? 'unavailable' : 'loading…'}`;
-    } else {
-      yearBtn.textContent = 'Year ' + sources.label(cur);
-    }
-    paintBadge();
-    const r = cur != null ? recs.get(cur) : null;
-    $('#year-src').textContent = !r ? ''
-      : r.tiled ? `tiles at the map's zoom, 3 in at the finest · ${sources.STREAM_LABEL}`
-      : [r.meta, r.win ? `${r.win.w.toFixed(0)}×${r.win.h.toFixed(0)} ft at ${resLabel(r.win.res)}` : '', r.src].filter(Boolean).join(' · ');
-    $('#fade').hidden = cur == null;
-    $('#save-year').disabled = cur == null;
-  }
-  const resLabel = (res) => res < 1 ? `${Math.round(res * 12)} in` : `${+res.toFixed(2)} ft`;
-
-  /* The label on the map: which year is on screen, how sharp, from where —
-     and, while a year is still coming, that what shows meanwhile is the base
-     map or a blurry preview. Jimmy, 2026-11-05: "Need a better way to tell
-     what layer I'm looking at when they're loading." */
-  const badge = $('#ov-badge');
-  const shortSrc = (rec) => rec.src.startsWith(sources.STREAM_LABEL) ? 'DRCOG mosaic'
-    : rec.src.startsWith(sources.ARCHIVE_LABEL) ? 'DRCOG archive' : (rec.credit || rec.src.replace(/\s*\(.*$/, ''));
-  const pending = (rec) => {
-    if (rec.status === 'failed' || rec.status === 'download') return 'not available here';
-    if (rec.status === 'idle' && map) {
-      const vw = viewWindow();
-      if (loadable(rec.year, vw)) return 'tap Load this view to read it';
-      const list = sources.SOURCES[rec.year].providers || [];
-      return list.length ? 'only ' + [...new Set(list.map((p) => p.area))].join(', ') : 'not available here';
-    }
-    return rec.st.textContent || 'loading…';
-  };
-  function paintBadge() {
-    if (!map || !recs.size) return;
-    const cur = currentYear(), want = state.selected;
-    if (state.load == null && !(cur != null && recs.get(cur).tiled)) { badge.hidden = true; return; }
-    const b = $('b', badge), s = $('span', badge), bar = $('.pbar', badge);
-    let frac = null;
-    if (cur == null) {
-      const year = want ?? [...sources.YEARS].reverse().find((y) => ['loading', 'queued'].includes(recs.get(y).status));
-      if (year == null) { badge.hidden = true; return; }
-      const r = recs.get(year);
-      b.textContent = sources.label(year);
-      s.textContent = `${pending(r)} — the base map shows meanwhile`;
-      frac = r.status === 'loading' ? r.frac : null;
-    } else {
-      const r = recs.get(cur);
-      b.textContent = sources.label(cur);
-      const here = r.tiled ? tileSharpness(r) : sharpness(r);
-      if (want != null && want !== cur) {
-        const w = recs.get(want);
-        s.textContent = `${here}. ${sources.label(want)}: ${pending(w)}`;
-        frac = w.status === 'loading' ? w.frac : null;
-      } else s.textContent = here;
-    }
-    bar.hidden = frac == null;
-    if (frac != null) $('i', bar).style.width = Math.round(frac * 100) + '%';
-    const it = base && base.item();
-    $('small', badge).textContent = it ? `Base map under it: ${it.plain || it.name}` : '';
-    badge.hidden = false;
-  }
-
-  /* "1 ft a pixel · DRCOG mosaic — coarser than the source, zoom in for 3 in":
-     the pixel size at the middle of the screen, where it came from, and,
-     when it is coarser than the source holds here, how to get the source's own
-     pixels. Jimmy, 2026-11-05: "Can you explain to me if drap is downloading
-     lower resolutions at all? That would not be ideal as the entire point is
-     to show the crazy detail of these aerial images". */
-  function sharpness(r) {
-    if (!r.win) return shortSrc(r);
-    const l = state.load || {};
-    const finest = srcResOf(r.year, l.lat, l.lon);
-    /* The pixel the picture carries: the window's, or the file's own when that
-       is coarser. 2004 and 2006 are 1 ft files (their world files say so)
-       drawn on a 3 in window; calling that "3 in a pixel" was not true. */
-    const res = Math.max(r.win.res, finest || 0);
-    let s = `${resLabel(res)} a pixel · ${shortSrc(r)}`;
-    if (finest && res > finest * 1.01) s += ` — coarser than the source, zoom in and load this view for ${resLabel(finest)}`;
-    else if (map && !doneHere(r, viewWindow())) s += ' — this year is loaded for another spot; Load this view to read it here';
-    return s;
-  }
-  /* A streamed year: the pixel the tiles on screen carry, which follows the
-     zoom down to the source's own 3 in. */
-  function tileSharpness(r) {
-    const c = map.getCenter();
-    if (!proj.inRegion(proj.toStatePlane(c.lng, c.lat))) return 'outside the DRAPP region — pan back to the Denver area';
-    const res = Math.max(SRC_RES, tileRes(layerOf(r)));
-    let s = `${resLabel(res)} a pixel · DRCOG mosaic`;
-    if (r.tilesLoading) s += ' — loading tiles…';
-    else if (r.tileErrors) s += ` — ${r.tileErrors} tile${r.tileErrors === 1 ? '' : 's'} did not load`;
-    else if (res > SRC_RES * 1.01) s += ` — zoom in for ${resLabel(SRC_RES)}`;
-    return s;
-  }
-  /* Sit just under the address panel, whatever its height on this screen. */
-  function placeBadge() {
-    const p = $('.panel-addr').getBoundingClientRect(), st = $('#stage').getBoundingClientRect();
-    badge.style.top = Math.round(p.bottom - st.top + 8) + 'px';
-  }
-  if (window.ResizeObserver) new ResizeObserver(placeBadge).observe($('.panel-addr'));
-  window.addEventListener('resize', placeBadge);
-  placeBadge();
-
-  function closeMenu() { menu.hidden = true; yearBtn.setAttribute('aria-expanded', 'false'); }
-
-  function choose(year) {
-    state.selected = year;
-    const rec = recs.get(year);
-    /* A year picked from the menu is the one "Load this view" offers. Before
-       2026-11-11 the prompt kept whatever was ticked first, so after one older
-       year had loaded, picking 2004 offered that year again, and Load fetched
-       it and switched the pick back to it: 2004 never came. */
-    if (!rec.tiled) viewSel.add(year);
-    if (rec.status === 'queued' && queue.includes(year)) {          // jump the queue
-      queue = [year, ...queue.filter((y) => y !== year)];
-      setStatus(rec, 'queued', 'next up', null);
-    }
-    writeHash();
-    showBest();
-    closeMenu();
-  }
-
-  function stepYear(dir) {
-    const ready = sources.YEARS.filter((y) => recs.get(y).status === 'ready');
-    if (!ready.length) return;
-    let i = ready.indexOf(currentYear());
-    i = (i + dir + ready.length) % ready.length;
-    choose(ready[i]);
-  }
-
-  /* ---------- tile lookups, shared by the loader and the estimate ---------- */
-  const tilesCache = new Map();
-  /* The index is asked once per year for the square and again for the view
-     prompt; sixteen queries at once has had DRCOG's server answer some with
-     errors, so they go four at a time. */
-  const INDEX_LANES = 4;
-  let lanes = 0; const waiting = [];
-  function lane(fn) {
-    return new Promise((resolve, reject) => {
-      const run = () => { lanes++; fn().then(resolve, reject).finally(() => { lanes--; if (waiting.length) waiting.shift()(); }); };
-      lanes < INDEX_LANES ? run() : waiting.push(run);
-    });
-  }
-  function lookupTiles(year, win, signal) {
-    const key = `${year}|${win.xmin.toFixed(0)}|${win.ymin.toFixed(0)}|${win.xmax.toFixed(0)}|${win.ymax.toFixed(0)}`;
-    if (!tilesCache.has(key)) {
-      if (tilesCache.size > 300) tilesCache.clear();
-      const p = lane(() => tileindex.tilesFor(year, win, signal));
-      p.then((t) => { p.settled = true; p.value = t; }, () => {
-        p.settled = true; p.value = [];
-        setTimeout(() => { if (tilesCache.get(key) === p) tilesCache.delete(key); }, 15000);   // a failure is retried later, not in a loop
+  function mount(v) {
+    if (v.on) return;
+    v.on = true;
+    if (!v.layers) {
+      v.layers = layerSpecs(v.year).map((o) => {
+        const l = new tiles.Layer(Object.assign({ pane: v.paneName }, o));
+        l.on('load tileerror', assessSoon);
+        return l;
       });
-      tilesCache.set(key, p);
     }
-    return tilesCache.get(key);
+    for (const l of v.layers) l.addTo(map);
+    for (const p of rec(v.year).patches) addOverlay(v, p);
+  }
+  function unmount(v) {
+    if (!v.on) return;
+    v.on = false;
+    for (const l of v.layers || []) map.removeLayer(l);
+    for (const o of v.overlays.values()) map.removeLayer(o.layer);
+    v.overlays.clear();
+    v.pane.style.opacity = 0;
+  }
+  function addOverlay(v, patch) {
+    if (v.overlays.has(patch)) return;
+    const canvas = document.createElement('canvas');
+    const o = { canvas, w: 0, layer: null };
+    o.layer = new warp.CanvasOverlay(canvas, warp.bounds(patch.rect), { pane: v.paneName, interactive: false });
+    v.overlays.set(patch, o);
+    redraw(v, patch);
+    o.layer.addTo(map);
+  }
+  /* Draw a patch's overlay from its state-plane master at the density the
+     screen needs now, in steps of 256 px. */
+  function redraw(v, patch, force) {
+    const o = v.overlays.get(patch);
+    if (!o) return;
+    const b = L.latLngBounds(warp.bounds(patch.rect));
+    const sw = map.latLngToContainerPoint(b.getSouthWest()), ne = map.latLngToContainerPoint(b.getNorthEast());
+    const W = Math.min(OV_MAX, patch.win.px * 2, Math.max(256, Math.ceil(Math.abs(ne.x - sw.x) * dpr() / 256) * 256));
+    if (W === o.w && !force) return;
+    warp.toMercator(patch.canvas, patch.win, patch.rect, W, o.canvas);
+    o.w = W;
+  }
+  function redrawAll(force) {
+    for (const v of views.values()) if (v.on) for (const p of v.overlays.keys()) redraw(v, p, force);
   }
 
-  /* The window a year renders for a base window: streamed years take it as
-     is; archive years may take a coarser sibling (the square's ceiling); a
-     year from another agency renders at that source's own ground sample —
-     asking a 1 ft flight for 3 inch pixels only invents them. */
-  function winFor(year, base, archiveRes, lat, lon) {
-    const src = sources.SOURCES[year];
-    if (src.stream) return base;
-    if (sources.isDrapp(year) && src.archive === 'tif') return archiveRes && archiveRes !== base.res ? proj.rewindow(base, archiveRes) : base;
-    const here = (src.providers || []).filter((p) => providers.covers(p, lat, lon));
-    if (!here.length) return base;
-    const finest = Math.min(...here.map((p) => p.res / 12), 1);
-    return finest > base.res ? proj.rewindow(base, finest) : base;
-  }
-
-  /* ---------- the loader ---------- */
-  function drawBox(win) {
-    if (box) map.removeLayer(box);
-    box = L.polygon(warp.corners(win), { pane: 'marks', color: '#e8c36a', weight: 1.5, fill: false, dashArray: '5 5', interactive: false }).addTo(map);
-  }
-
-  /* Render `years` for the base window. o: {lat, lon, label, archiveRes, fit}. */
-  async function load(base, years, o) {
-    years = years.filter((y) => !tiled(y));     // streamed years are tiles already
-    if (!years.length) return;
-    if (controller) controller.abort();
-    controller = new AbortController();
-    const { signal } = controller;
-    const { lat, lon } = o;
-    state.load = { win: base, lat, lon, label: o.label };
-    hideView();
-    drawBox(base);
-    say(`${o.label} — 2018 to 2024 are on the map as tiles; ${years.length === 1 ? sources.label(years[0]) + ' is' : years.length + ' older years are'} loading for the view on screen (${base.w.toFixed(0)} × ${base.h.toFixed(0)} ft at ${resLabel(base.res)} a pixel).`);
-    map.attributionControl.removeAttribution(extraCredit);
-    const winOf = (year) => winFor(year, base, o.archiveRes, lat, lon);
-    for (const y of years) { const rec = recs.get(y); resetRec(rec); rec.win = winOf(y); }
-    paintButton();
-    const prep = (rec, w) => {
-      rec.win = w;
-      rec.canvas.width = w.px; rec.canvas.height = w.py;   // also clears it
-      return w;
-    };
-
-    /* Cached windows first. */
-    const cached = new Set();
-    if (!state.fresh) {
-      await Promise.all(years.map(async (year) => {
-        const rec = recs.get(year);
-        const w = winOf(year);
-        const hit = await cache.get(year, w);
-        if (!hit || signal.aborted) return;
-        try {
-          prep(rec, w);
-          await cache.draw(hit, rec.canvas);
-          rec.meta = hit.meta || ''; rec.credit = hit.credit || '';
-          finish(rec, w, hit.src || '', '· cached');
-          cached.add(year);
-        } catch (e) { /* fall through to a live render */ }
-      }));
-      if (signal.aborted) return;
-    }
-    const todo = years.filter((y) => !cached.has(y));
-
-    /* Tile lookups for every year, in parallel; they are tiny. */
-    const lookups = years.map(async (year) => {
-      const rec = recs.get(year);
-      if (!sources.isDrapp(year)) { fillSources(rec); return; }
-      try {
-        fillFiles(rec, await lookupTiles(year, base, signal));
-      } catch (e) {
-        if (e.name === 'AbortError') return;
-        rec.indexError = e.message;
-        rec.files.innerHTML = `<li class="dim">tile index unavailable (${e.message})</li>`;
-      }
+  /* Put each side's year on the map: the new one fades in on top, and what
+     was there before comes off once the fade is over. */
+  let sweepSeq = 0;
+  function showSides() {
+    const wanted = new Set();
+    state.sides.forEach((s, i) => {
+      const v = viewOf(i, s.year);
+      wanted.add(v);
+      mount(v);
+      v.pane.style.zIndex = 400 + i * 10 + 1;
+      requestAnimationFrame(() => { v.pane.style.opacity = 1; });
+      s.view = v;
     });
-
-    /* A year from another agency's service: one request, drawn on the same
-       grid. Resolves true if it rendered. */
-    async function fromProviders(year) {
-      const rec = recs.get(year);
-      const list = sources.SOURCES[year].providers;
-      if (!list || !list.some((p) => providers.covers(p, lat, lon))) return false;
-      setStatus(rec, 'loading', 'asking ' + [...new Set(list.map((p) => p.credit))].join(', ') + '…', null);
-      const w = winOf(year);
-      try {
-        const r = await providers.render(list, lat, lon, prep(rec, w), rec.canvas, signal);
-        rec.meta = [shortRes(r.provider.res + ' inch'), r.provider.credit].join(' · ');
-        rec.credit = r.provider.credit;
-        finish(rec, w, r.provider.src, r.note);
-        cache.put(year, w, rec.canvas, { src: r.provider.src, meta: rec.meta, credit: rec.credit });
-        return true;
-      } catch (e) {
-        if (e.name === 'AbortError') throw e;
-        rec.nothingHere = !!e.nothingHere;
-        setStatus(rec, 'failed', e.message, null);
-        return false;
-      }
-    }
-    const extras = todo.filter((y) => !sources.isDrapp(y)).map(async (year) => {
-      const rec = recs.get(year);
-      const list = sources.SOURCES[year].providers;
-      if (!list.some((p) => providers.covers(p, lat, lon))) {
-        setStatus(rec, 'failed', 'only ' + [...new Set(list.map((p) => p.area))].join(', '), null);
-        return;
-      }
-      try { await fromProviders(year); } catch (e) { /* aborted */ }
+    for (const v of views.values()) if (v.on && !wanted.has(v)) v.pane.style.zIndex = 400 + v.side * 10;
+    /* The old year stays underneath until the new one's tiles have landed
+       (or six seconds), so a change of year never flashes to black. */
+    const seq = ++sweepSeq;
+    const landed = [...wanted].flatMap((v) => v.layers.filter((l) => l.isLoading && l.isLoading()).map((l) => new Promise((res) => l.once('load', res))));
+    Promise.all([new Promise((res) => setTimeout(res, 650)), Promise.race([Promise.all(landed), new Promise((res) => setTimeout(res, 6000))])]).then(() => {
+      if (seq !== sweepSeq) return;
+      const now = new Set(state.sides.map((x) => x.view));
+      for (const v of views.values()) if (v.on && !now.has(v) && v.side < 9) unmount(v);
     });
-
-    async function fromArchive(year) {
-      const rec = recs.get(year);
-      const src = sources.SOURCES[year];
-      if (src.archive !== 'tif') {
-        if (await fromProviders(year)) return;
-        /* A county service that did not answer: say that, not "download". One
-           that answered blank ("Arapahoe County has nothing here", downtown
-           Denver in 2002 and 2008) says nothing about DRCOG's own tile, which
-           is there and can be downloaded. */
-        if (rec.status === 'failed' && !rec.nothingHere) return;
-        setStatus(rec, 'download', src.archive === 'jp2' ? 'JPEG 2000 — download only (≈8 MB)' : 'MrSID — download only, opens in QGIS', null);
-        return;
-      }
-      if (!rec.tiles.length) { setStatus(rec, 'failed', rec.indexError ? 'tile index: ' + rec.indexError : 'no archive tile indexed here', null); return; }
-      const w = winOf(year);
-      const t0 = performance.now();
-      try {
-        setStatus(rec, 'loading', 'opening tile…', 0);
-        const out = await tiffwindow.render(rec.tiles, prep(rec, w), rec.canvas, signal, (f, note) => setStatus(rec, 'loading', note, f));
-        const secs = (performance.now() - t0) / 1000;
-        estimate.learn(out.requests, out.bytes, secs);
-        finish(rec, w, sources.ARCHIVE_LABEL, `(${out.mode}, ${out.requests} requests, ${estimate.mb(out.bytes)}, ${secs.toFixed(1)}s)`);
-        cache.put(year, w, rec.canvas, { src: sources.ARCHIVE_LABEL, meta: rec.meta });
-      } catch (e) {
-        if (e.name === 'AbortError') throw e;
-        setStatus(rec, 'failed', e.message, null);
-      }
-    }
-
-    await Promise.all(lookups);
-    if (signal.aborted) return;
-    queue = todo.filter((y) => sources.isDrapp(y) && !sources.SOURCES[y].stream).sort((a, b) => b - a);
-    if (state.selected != null && queue.includes(state.selected)) queue = [state.selected, ...queue.filter((y) => y !== state.selected)];
-    for (const y of queue) setStatus(recs.get(y), 'queued', 'queued', null);
-    try {
-      while (queue.length) {
-        if (signal.aborted) return;
-        await fromArchive(queue.shift());
-      }
-      await Promise.all(extras);
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      throw e;
-    }
-    if (!signal.aborted) {
-      say(`${o.label} — ${years.length === sources.YEARS.filter((y) => !tiled(y)).length ? 'every year here' :years.length === 1 ? sources.label(years[0]) : years.length + ' years'} loaded.`);
-      updateCacheNote();
-      scheduleViewCheck();
-    }
+    clipSides();
+    paintAll();
+    assessSoon();
+    writeHash();
   }
 
-  /* An address, or "Every year here": the view on screen, every year. The
-     streamed years are tiles and are there already; every other year is read
-     for the view (the tap is the okay, the way the address square used to
-     be), at the screen's density, at most CAP_ARCHIVE pixels a side. An
-     address first moves the map there at the zoom where a device pixel is
-     about one 3-inch source pixel; "Every year here" keeps the view. */
-  function show(keepView) {
-    const sp = proj.toStatePlane(state.lon, state.lat);
-    if (!proj.inRegion(sp)) {
-      say(`${state.label} is outside the DRAPP footprint (the Denver region). Nothing to show.`, 'warn');
-      for (const rec of recs.values()) if (!rec.tiled) { resetRec(rec); setStatus(rec, 'failed', 'outside region', null); }
-      map.setView([state.lat, state.lon], 12);
-      return;
+  /* ---------- how the view is doing ----------
+     For each side: is its year covering the view from tiles, from a loaded
+     patch, partly, or not at all? That decides the dimmed ground underneath,
+     the "Load here" button and the line of text. */
+  let assessTimer = 0;
+  function assessSoon() { clearTimeout(assessTimer); assessTimer = setTimeout(assess, 120); }
+  function patchUnder(year, vb) {
+    const ps = rec(year).patches.filter((p) => over(p.win, vb));
+    return ps.length ? ps.reduce((a, b) => (b.win.res < a.win.res ? b : a)) : null;
+  }
+  function sideStatus(i) {
+    const s = state.sides[i], v = s.view, src = S[s.year];
+    if (!v || !v.on) return { mode: 'pending' };
+    const vb = viewBox(), bounds = map.getBounds();
+    const cov = { good: 0, flat: 0, failed: 0, pending: 0 };
+    let wide = false, whole = false, used = null;
+    for (const l of v.layers) {
+      if (!l.options.bounds.intersects(bounds)) continue;
+      if (l.options.wide) wide = true;
+      if (l.options.bounds.contains(bounds)) whole = true;
+      const c = l.coverage();
+      for (const k in cov) cov[k] += c[k];
+      if (c.good && !used) used = l;
     }
-    if (pin) map.removeLayer(pin);
-    pin = L.circleMarker([state.lat, state.lon], { pane: 'marks', radius: 4, color: '#e8c36a', weight: 2, fillColor: '#0f1418', fillOpacity: 1, interactive: false }).addTo(map);
-    if (!keepView) map.setView([state.lat, state.lon], zoom3in(state.lat), { animate: false });
-    const vw = viewWindow();
-    let ar = vw.res;
-    while (vw.w / ar > CAP_ARCHIVE || vw.h / ar > CAP_ARCHIVE) ar = proj.snapRes(ar * 2);
-    paintButton();
-    return load(vw, sources.YEARS, { lat: state.lat, lon: state.lon, label: state.label, archiveRes: ar });
-  }
-
-  /* ---------- load this view ---------- */
-  const view = {
-    el: $('#view-load'), chip: $('#view-chip'), panel: $('#view-panel'), desc: $('#view-desc'),
-    years: $('#view-years'), go: $('#view-go'), all: $('#view-all'), none: $('#view-none'), dismiss: $('#view-dismiss'),
-  };
-  const viewSel = new Set();       // years ticked in the prompt; kept across views
-  let viewWin = null;              // the window the prompt is about
-  let dismissedWin = null;
-  let viewTimer = 0;
-
-  function scheduleViewCheck() {
-    clearTimeout(viewTimer);
-    viewTimer = setTimeout(() => { viewCheck(); paintBadge(); }, 250);
-  }
-  function hideView() { view.el.hidden = true; viewWin = null; }
-
-  function viewCheck() {
-    if (!map || map.getZoom() < VIEW_MIN_ZOOM) return hideView();
+    const patch = patchUnder(s.year, vb);
+    const reading = state.read && state.read.year === s.year;
     const c = map.getCenter();
-    if (!proj.inRegion(proj.toStatePlane(c.lng, c.lat))) return hideView();
-    const vw = viewWindow();
-    const year = state.selected ?? currentYear();
-    const rec = year != null ? recs.get(year) : null;
-    if (!rec || rec.tiled) return hideView();     // tiles follow the view by themselves
-    if (doneHere(rec, vw)) return hideView();
-    if (dismissedWin && covers(dismissedWin, vw) && covers(vw, dismissedWin)) return hideView();
-    viewWin = vw;
-    /* A ticked year already tried for this view needs no second fetch. */
-    for (const y of [...viewSel]) if (y !== year && doneHere(recs.get(y), vw)) viewSel.delete(y);
-    if (!viewSel.size) viewSel.add(year ?? newestLoadable(vw));
-    view.el.hidden = false;
-    paintView();
+    const canRead = src.archive === 'tif' && proj.inRegion({ x: vb.cx, y: vb.cy });
+    /* Tiles still on their way hold the verdict back, except where the only
+       tile source is Arapahoe County's and this spot is known to be outside
+       it: those tiles will come back blank, so the read need not wait. */
+    const outside = canRead && v.layers.every((l) => l.options.provider && l.options.provider.credit === ARAPAHOE) && inArapahoe(c.lat, c.lng) === false;
+    let mode;
+    if (wide) mode = 'tiles';
+    else if (cov.pending && !outside && !patch) mode = 'checking';
+    else if (cov.good && !cov.flat && !cov.failed && whole) mode = 'tiles';
+    else if (patch) mode = 'patch';
+    else if (cov.good > cov.flat + cov.failed) mode = 'partial';
+    else mode = 'missing';
+    return { mode, cov, patch, used, reading, canRead, lat: c.lat, lon: c.lng, vb };
   }
 
-  /* A year the prompt can load here. Streamed years are not in it: they are
-     tiles, on the map at full detail with nothing to load. */
-  const loadable = (year, vw) => {
-    const src = sources.SOURCES[year];
-    if (src.stream) return false;
-    if (sources.isDrapp(year) && src.archive === 'tif') return true;
-    const { lat, lon } = proj.toLonLat(vw.cx, vw.cy);
-    return (src.providers || []).some((p) => providers.covers(p, lat, lon));
-  };
-  /* The default tick: the newest year the prompt can load here. */
-  const newestLoadable = (vw) => [...sources.YEARS].reverse().find((y) => loadable(y, vw));
+  let lastAssess = [];
+  function assess() {
+    if (!map) return;
+    const st = state.sides.map((_, i) => sideStatus(i));
+    lastAssess = st;
+    /* Ground to steer by under a year that does not fill the view. */
+    const needGround = st.some((x) => x.mode !== 'tiles' && x.mode !== 'pending');
+    setContext(needGround);
+    paintStatus();
+    paintPrompt();
+    paintTimeline();
+  }
 
-  /* Estimates for the prompt: archive years wait for their tile lookup and
-     repaint when it lands. */
-  let viewEsts = new Map();
-  function paintView() {
-    const vw = viewWin;
-    if (!vw) return;
-    const { lat, lon } = proj.toLonLat(vw.cx, vw.cy);
-    const wide = vw.w > VIEW_MAX_FT;
-    view.desc.textContent = `${vw.w.toFixed(0)} × ${vw.h.toFixed(0)} ft at ${resLabel(vw.res)} a pixel (${vw.px.toLocaleString()} × ${vw.py.toLocaleString()} px)`;
-    if (wide) {
-      view.chip.textContent = `Zoom in to load imagery — the view is ${(vw.w / 5280).toFixed(1)} mi wide`;
-      view.chip.disabled = true;
-      view.panel.hidden = true;
-      return;
+  function setContext(on) {
+    const want = on ? state.contextYear : null;
+    if (contextLayer && contextLayer.year !== want) { map.removeLayer(contextLayer.layer); contextLayer = null; }
+    if (want != null && !contextLayer) {
+      const spec = layerSpecs(want)[0];
+      contextLayer = { year: want, layer: new tiles.Layer(Object.assign({ pane: 'context' }, spec)).addTo(map) };
     }
-    view.chip.disabled = false;
-    const ests = new Map();
-    for (const year of sources.YEARS) {
-      if (!loadable(year, vw)) continue;
-      const w = winFor(year, vw, null, lat, lon);
-      const src = sources.SOURCES[year];
-      let tiles;
-      if (sources.isDrapp(year) && src.archive === 'tif' && !src.stream) {
-        const p = lookupTiles(year, vw);
-        tiles = p.settled ? p.value : null;
-        if (!p.settled && !p.repaint) {
-          p.repaint = true;
-          p.catch(() => {}).then(() => { if (viewWin === vw) paintView(); });
-        }
+  }
+
+  /* ---------- reading a year out of the archive ---------- */
+  const indexMemo = new Map();
+  function indexTiles(year, box, signal) {
+    const key = `${year}|${Math.floor(box.xmin / 200)}|${Math.floor(box.ymin / 200)}|${Math.ceil(box.xmax / 200)}|${Math.ceil(box.ymax / 200)}`;
+    if (!indexMemo.has(key)) {
+      if (indexMemo.size > 200) indexMemo.clear();
+      const p = tileindex.tilesFor(year, box, signal);
+      p.catch(() => indexMemo.delete(key));
+      indexMemo.set(key, p);
+    }
+    return indexMemo.get(key);
+  }
+
+  /* The window a year would be read on, and what it costs. The archive files
+     are uncompressed, one image row to a request, so the cost is the ground
+     covered times the detail: a neighbourhood at screen detail is tens of
+     megabytes. So the read is at the screen's own density (never finer than
+     the file), and it is as much of the middle of the view as `budget` buys:
+     the whole view when zoomed in close, a block in the middle further out.
+     `tooSmall` says the block would be too small to be worth it. */
+  function readPlan(year, idx, lat, lon, budget = AUTO_BYTES) {
+    const vb = viewBox(), src = S[year];
+    const floor = src.layout ? src.layout.res : SRC_RES;
+    const css = cssRes();
+    const at = (density) => {
+      let res = Math.max(floor, css / density);
+      if (res < 1.5 * floor) res = floor;
+      res = proj.snapRes(res);
+      let w = vb.w, h = vb.h, win, est;
+      for (let n = 0; n < 6; n++) {
+        const k = Math.min(1, MAX_PX * res / w, MAX_PX * res / h);
+        w *= k; h *= k;
+        win = proj.windowBox(vb.cx - w / 2, vb.cy - h / 2, vb.cx + w / 2, vb.cy + h / 2, res);
+        est = estimate.forYear(year, win, idx, lat, lon);
+        if (!est || est.bytes == null) return { win, est, part: true, tooSmall: true };
+        if (est.bytes <= budget) break;
+        const f = Math.sqrt(budget / est.bytes) * 0.96;
+        w *= f; h *= f;
       }
-      ests.set(year, estimate.forYear(year, w, tiles, lat, lon));
+      return { win, est, part: (w * h) / (vb.w * vb.h) < 0.85, tooSmall: Math.min(w, h) / css < MIN_BLOCK || est.bytes > budget * 1.2 };
+    };
+    /* The screen's own density if that covers the view; otherwise one image
+       pixel per CSS pixel, which buys twice the ground for the same bytes. */
+    const fine = at(dpr());
+    return fine.part && dpr() > 1 ? at(1) : fine;
+  }
+
+  async function read(year, plan, idx) {
+    cancelRead();
+    const ctl = new AbortController();
+    const job = state.read = { year, ctl, frac: 0, note: 'looking up the photo' };
+    const r = rec(year), win = plan.win;
+    const canvas = document.createElement('canvas');
+    canvas.width = win.px; canvas.height = win.py;
+    const patch = { win, rect: warp.mercRect(win), canvas, meta: '', partial: true };
+    const first = idx.map((t) => tileindex.prettyDate(t.photoDate)).filter(Boolean)[0];
+    patch.meta = first ? 'photographed ' + first : '';
+    paintStatus(); paintPrompt();
+    try {
+      const hit = await cache.get(year, win);
+      if (hit && hit.blob) {
+        await cache.draw(hit, canvas);
+        patch.kept = true;
+      } else {
+        r.patches.push(patch);
+        for (const v of views.values()) if (v.on && v.year === year) addOverlay(v, patch);
+        let last = 0;
+        const t0 = performance.now();
+        const out = await tiffwindow.render(idx, win, canvas, ctl.signal, (f, note) => {
+          job.frac = f; job.note = note;
+          paintPrompt();
+          const now = performance.now();
+          if (now - last > 600) { last = now; requestAnimationFrame(() => { for (const v of views.values()) if (v.on && v.year === year) redraw(v, patch, true); }); }
+        });
+        tiles.meter.net += out.bytes; tiles.meter.requests += out.requests;
+        estimate.learn(out.requests, out.bytes, (performance.now() - t0) / 1000);
+        cache.put(year, win, canvas, { meta: patch.meta });
+        r.patches.splice(r.patches.indexOf(patch), 1);
+      }
+      patch.partial = false;
+      r.patches.push(patch);
+      while (r.patches.length > PATCHES_KEPT) {
+        const old = r.patches.shift();
+        for (const v of views.values()) { const o = v.overlays.get(old); if (o) { map.removeLayer(o.layer); v.overlays.delete(old); } }
+      }
+      for (const v of views.values()) if (v.on && v.year === year) { addOverlay(v, patch); redraw(v, patch, true); }
+    } catch (e) {
+      const i = r.patches.indexOf(patch);
+      if (i >= 0) r.patches.splice(i, 1);
+      for (const v of views.values()) { const o = v.overlays.get(patch); if (o) { map.removeLayer(o.layer); v.overlays.delete(patch); } }
+      if (e.name !== 'AbortError') job.error = e.message;
     }
-    viewEsts = ests;
-    paintTotals();
-    if (view.panel.hidden) return;
-    view.years.innerHTML = '';
-    for (const year of [...sources.YEARS].reverse()) {
-      if (!ests.has(year)) continue;
-      const e = ests.get(year);
-      const row = document.createElement('label');
-      row.className = 'vrow' + (e && e.why ? ' off' : '');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox'; cb.value = year;
-      cb.checked = viewSel.has(year) && !(e && e.why);
-      cb.disabled = !!(e && e.why);
-      cb.addEventListener('change', () => { if (cb.checked) viewSel.add(year); else viewSel.delete(year); paintTotals(); });
-      const em = document.createElement('em');
-      em.textContent = e === undefined ? '…' : e.why ? e.why : estimate.long(e) + (e.how ? ` · ${e.how}` : '');
-      row.append(cb, Object.assign(document.createElement('b'), { textContent: sources.label(year) }), em);
-      view.years.appendChild(row);
+    if (state.read === job) state.read = job.error ? { year, error: job.error } : null;
+    paintMeter();
+    assess();
+  }
+  function cancelRead() {
+    if (state.read && state.read.ctl) state.read.ctl.abort();
+    state.read = null;
+  }
+
+  /* The button over the timeline: offer to read the active side's year for
+     this view, show the read in progress, or say why there is nothing. */
+  const prompt = $('#prompt');
+  let promptSeq = 0;
+  async function paintPrompt() {
+    const seq = ++promptSeq;
+    const i = state.active, s = state.sides[i], st = lastAssess[i];
+    const label = sources.label(s.year);
+    const set = (html, cls) => { if (seq !== promptSeq) return; prompt.className = 'prompt ' + (cls || ''); prompt.innerHTML = html; prompt.hidden = !html; };
+    if (state.read && state.read.ctl) {
+      const j = state.read;
+      return set(`<span class="spin"></span><span>Reading ${sources.label(j.year)} from DRCOG's archive… ${Math.round(j.frac * 100)}%</span><i class="bar"><i style="width:${Math.round(j.frac * 100)}%"></i></i><button type="button" data-act="cancel" aria-label="Stop">✕</button>`, 'busy');
+    }
+    if (!st || st.mode === 'tiles' || st.mode === 'pending' || st.mode === 'checking') return set('');
+    if (state.read && state.read.error && state.read.year === s.year) {
+      return set(`<span>${label} did not load: ${state.read.error}</span><button type="button" data-act="read">Try again</button>`, 'warn');
+    }
+    const have = st.mode === 'patch' ? st.patch : null;
+    if (!st.canRead) {
+      if (st.mode === 'partial' || have) return set('');
+      const areas = [...new Set((S[s.year].providers || []).map((p) => p.area))];
+      const why = S[s.year].archive === 'jp2' || S[s.year].archive === 'sid'
+        ? `${label} is online only for Arapahoe County. DRCOG's own ${label} files are ${S[s.year].archive === 'jp2' ? 'JPEG 2000' : 'MrSID'}, which a browser cannot open.`
+        : areas.length ? `${label} covers only ${areas.join(' and ')}.` : `Nothing for ${label} here.`;
+      return set(`<span>${why}</span>`, 'note');
+    }
+    let idx;
+    const slow = setTimeout(() => set(`<span class="spin"></span><span>Looking for ${label} here…</span>`, 'busy'), 500);
+    try { idx = await indexTiles(s.year, st.vb); } catch (e) {
+      clearTimeout(slow);
+      return set(`<span>DRCOG's index for ${label} is not answering, so ${label} cannot be found right now.</span><button type="button" data-act="retry">Retry</button>`, 'warn');
+    }
+    clearTimeout(slow);
+    if (seq !== promptSeq) return;
+    if (!idx.some((t) => t.kind === 'tif' && t.image)) return set(`<span>DRCOG has no ${label} photo of this spot.</span>`, 'note');
+    const auto = state.wantRead === s.year;
+    state.wantRead = null;
+    if (have) {
+      /* Something is loaded under the middle of the view. Two quiet offers:
+         the same view in more detail, when zooming in has made that
+         affordable, or the remainder of the view around a block. */
+      const again = readPlan(s.year, idx, st.lat, st.lon);
+      if (!again.tooSmall && !again.part && again.win.res <= have.win.res / 1.5) {
+        pending = { year: s.year, plan: again, idx };
+        return set(`<button type="button" class="go" data-act="read">Sharpen ${label} here<small>≈${mb(again.est.bytes)} · ${resLabel(again.win.res)} a pixel</small></button>`, 'more');
+      }
+      if (share(have.win, st.vb) >= 0.7) return set('');
+      const whole = readPlan(s.year, idx, st.lat, st.lon, MAX_BYTES);
+      if (whole.tooSmall || whole.part || whole.win.res > have.win.res * 1.01) return set('');
+      pending = { year: s.year, plan: whole, idx };
+      return set(`<button type="button" class="go" data-act="read">Load the whole view<small>≈${mb(whole.est.bytes)}</small></button>`, 'more');
+    }
+    const plan = readPlan(s.year, idx, st.lat, st.lon);
+    if (plan.tooSmall) {
+      /* From this far out a read would be a postage stamp. A year just picked
+         goes in a level at a time until it fits; after a pan, the button does. */
+      if (auto && map.getZoom() < 20) { state.wantRead = s.year; zoomedFor = s.year; map.setZoom(map.getZoom() + 1); return set(`<span class="spin"></span><span>Moving in to where ${label} can load…</span>`, 'busy'); }
+      return set(`<button type="button" class="go" data-act="closer">Zoom in to load ${label}<small>too much raw archive from this far out</small></button>`, 'more');
+    }
+    if (auto) return read(s.year, plan, idx);
+    pending = { year: s.year, plan, idx };
+    set(`<button type="button" class="go" data-act="read">Load ${label} here<small>≈${mb(plan.est.bytes)}${plan.part ? ' · the middle of the view' : ''}</small></button>`, 'offer');
+  }
+  let pending = null, zoomedFor = null;
+  prompt.addEventListener('click', (ev) => {
+    const b = ev.target.closest('button');
+    if (!b) return;
+    if (b.dataset.act === 'cancel') { cancelRead(); assess(); }
+    else if (b.dataset.act === 'closer') { state.wantRead = state.sides[state.active].year; map.setZoom(map.getZoom() + 1); }
+    else if (b.dataset.act === 'read' && pending && pending.year === state.sides[state.active].year) read(pending.year, pending.plan, pending.idx);
+    else { state.read = null; state.wantRead = state.sides[state.active].year; assess(); }
+  });
+
+  /* ---------- the timeline ---------- */
+  const chips = $('#chips');
+  let chipSig = '';
+  function paintTimeline() {
+    const years = yearsHere();
+    const sel = state.sides.map((s) => s.year);
+    for (const y of sel) if (!years.includes(y)) years.push(y);
+    years.sort((a, b) => a - b);
+    const c = map.getCenter(), vb = viewBox();
+    const kinds = years.map((y) => {
+      const h = how(y, c.lat, c.lng);
+      if (!h) return 'off';
+      if (h === 'read') return patchUnder(y, vb) ? 'got' : 'need';
+      return 'now';
+    });
+    const sig = years.join() + '|' + kinds.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
+    if (sig === chipSig) return;
+    chipSig = sig;
+    chips.innerHTML = '';
+    let prev = null;
+    years.forEach((y, n) => {
+      if (prev != null && y - prev > 4) chips.appendChild(el('i', 'gap'));
+      prev = y;
+      const b = el('button', 'chip ' + kinds[n], sources.label(y));
+      b.type = 'button'; b.dataset.year = y;
+      const side = sel.indexOf(y);
+      if (y === sel[state.active]) { b.classList.add('on'); b.setAttribute('aria-current', 'true'); }
+      else if (side >= 0) b.classList.add('other');
+      if (state.read && state.read.ctl && state.read.year === y) b.classList.add('busy');
+      b.title = kinds[n] === 'need' ? `${sources.label(y)}: read from DRCOG's archive for the view on screen`
+        : kinds[n] === 'off' ? `${sources.label(y)} has nothing here` : sources.label(y);
+      chips.appendChild(b);
+    });
+    const on = $('.chip.on', chips);
+    if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  chips.addEventListener('click', (ev) => {
+    const b = ev.target.closest('.chip');
+    if (b) { stopPlay(); pick(+b.dataset.year); }
+  });
+
+  function pick(year, quiet) {
+    const s = state.sides[state.active];
+    if (S[year].stream) state.contextYear = year;
+    if (state.read && state.read.ctl && state.read.year !== year) cancelRead();
+    if (state.read && !state.read.ctl) state.read = null;
+    s.year = year;
+    state.wantRead = quiet ? null : year;
+    showSides();
+  }
+  function step(dir) {
+    const years = yearsHere(), cur = state.sides[state.active].year;
+    const next = dir > 0 ? years.find((y) => y > cur) : [...years].reverse().find((y) => y < cur);
+    if (next != null) pick(next);
+  }
+
+  /* Play: walk the years that can be shown here without asking for anything,
+     oldest to newest, round and round. */
+  function playable() {
+    const c = map.getCenter(), vb = viewBox();
+    return yearsHere().filter((y) => how(y, c.lat, c.lng) === 'tiles' || patchUnder(y, vb));
+  }
+  function stopPlay() { clearInterval(state.playing); state.playing = 0; $('#play').classList.remove('on'); $('#play').setAttribute('aria-pressed', 'false'); }
+  function togglePlay() {
+    if (state.playing) return stopPlay();
+    const tickYear = () => {
+      const ys = playable(), cur = state.sides[state.active].year;
+      if (ys.length < 2) return stopPlay();
+      pick(ys.find((y) => y > cur) ?? ys[0], true);
+    };
+    $('#play').classList.add('on'); $('#play').setAttribute('aria-pressed', 'true');
+    tickYear();
+    state.playing = setInterval(tickYear, 1800);
+  }
+
+  /* ---------- the words ---------- */
+  function sourceLine(i) {
+    const s = state.sides[i], st = lastAssess[i] || {}, src = S[s.year];
+    if (st.reading && st.mode !== 'tiles') return 'reading from DRCOG\'s archive…';
+    if (st.mode === 'patch') return ['DRCOG archive', resLabel(st.patch.win.res) + ' a pixel', st.patch.meta].filter(Boolean).join(' · ');
+    if (src.stream) {
+      const sharp = prefs.sharp && dpr() >= 1.5 && map.getZoom() >= SHARPEN_ZOOM;
+      const res = Math.max(SRC_RES, cssRes() / (sharp ? dpr() : 1));
+      const px = res <= SRC_RES * 1.05 ? '3 in a pixel, all there is' : `${resLabel(res)} a pixel · zoom in for 3 in`;
+      return ['DRCOG' + (src.interim ? ' interim mosaic' : ''), px].join(' · ');
+    }
+    const p = st.used && st.used.options.provider;
+    if (p && (st.mode === 'tiles' || st.mode === 'partial')) return [p.credit, p.src].filter(Boolean).join(' · ');
+    if (st.mode === 'checking' || st.mode === 'pending') return 'loading…';
+    return st.canRead ? `not loaded here · ${state.contextYear} underneath, dimmed` : `not here · ${state.contextYear} underneath, dimmed`;
+  }
+  function paintStatus() {
+    const i = state.active;
+    $('#year-now').textContent = sources.label(state.sides[i].year);
+    $('#src').textContent = sourceLine(i);
+    document.title = `Denver Aerials — ${sources.label(state.sides[i].year)}`;
+    state.sides.forEach((s, n) => {
+      const tag = $(`#tag-${n}`);
+      if (tag) { tag.querySelector('b').textContent = sources.label(s.year); tag.classList.toggle('on', n === state.active); }
+    });
+  }
+  function paintMeter() {
+    const m = tiles.meter;
+    $('#meter').textContent = '↓ ' + mb(m.net);
+    $('#meter').title = `${mb(m.net)} downloaded this visit in ${m.requests.toLocaleString()} requests` + (m.kept ? `; ${mb(m.kept)} more came from what this browser already had` : '');
+  }
+  function paintAll() { paintStatus(); paintTimeline(); paintMeter(); }
+  let toastTimer = 0;
+  function toast(text, ms = 4000) {
+    const t = $('#toast');
+    t.textContent = text; t.hidden = !text;
+    clearTimeout(toastTimer);
+    if (text && ms) toastTimer = setTimeout(() => { t.hidden = true; }, ms);
+  }
+
+  /* ---------- compare: two years, one divider ---------- */
+  const divider = $('#divider');
+  function clipSides() {
+    const comparing = state.sides.length === 2;
+    divider.hidden = !comparing;
+    $('#tags').hidden = !comparing;
+    document.body.classList.toggle('comparing', comparing);
+    const size = map.getSize();
+    const x = Math.round(size.x * state.split);
+    divider.style.left = x + 'px';
+    const nw = map.containerPointToLayerPoint([0, 0]), se = map.containerPointToLayerPoint(size);
+    const cut = nw.x + x;
+    for (const v of views.values()) {
+      if (!comparing) { v.pane.style.clipPath = ''; continue; }
+      const [l, r] = v.side === 0 ? [nw.x, cut] : [cut, se.x];
+      v.pane.style.clipPath = `polygon(${l}px ${nw.y}px, ${r}px ${nw.y}px, ${r}px ${se.y}px, ${l}px ${se.y}px)`;
     }
   }
-  /* The chip and the go button: the ticked years' total. */
-  function paintTotals() {
-    const ests = viewEsts;
-    const picked = [...viewSel].filter((y) => ests.has(y) && !(ests.get(y) && ests.get(y).why));
-    const total = estimate.sum(picked.map((y) => ests.get(y)));
-    const unknown = picked.some((y) => ests.get(y) === undefined);
-    const who = picked.length === 1 ? sources.label(picked[0]) : `${picked.length} years`;
-    view.chip.textContent = picked.length ? `Load this view · ${who} ${unknown ? '…' : estimate.short(total)}` : 'Load this view…';
-    view.go.textContent = picked.length ? `Load ${who}${unknown ? '' : ' · ' + estimate.long(total)}` : 'Pick a year';
-    view.go.disabled = !picked.length || unknown;
-    for (const cb of view.years.querySelectorAll('input')) cb.checked = viewSel.has(+cb.value) && !cb.disabled;
+  function toggleCompare() {
+    stopPlay();
+    if (state.sides.length === 2) {
+      const keep = state.sides[state.active].year;
+      for (const v of views.values()) if (v.side === 1) unmount(v);
+      state.sides = [{ year: keep, view: null }];
+      state.active = 0;
+    } else {
+      /* Left is the older picture: the nearest earlier year that is here, the
+         right keeps what was on show. */
+      const cur = state.sides[0].year, years = yearsHere();
+      const older = [...years].reverse().find((y) => y < cur) ?? years.find((y) => y !== cur) ?? cur;
+      state.sides = [{ year: older, view: null }, { year: cur, view: null }];
+      state.active = 0;
+      state.wantRead = older;
+      state.split = 0.5;
+    }
+    $('#compare').classList.toggle('on', state.sides.length === 2);
+    $('#compare').setAttribute('aria-pressed', String(state.sides.length === 2));
+    chipSig = '';
+    showSides();
+  }
+  function dragDivider(ev) {
+    ev.preventDefault();
+    const rect = map.getContainer().getBoundingClientRect();
+    const move = (e) => {
+      const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+      state.split = Math.max(0.04, Math.min(0.96, x / rect.width));
+      clipSides();
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
   }
 
-  view.chip.addEventListener('click', () => {
-    view.panel.hidden = !view.panel.hidden;
-    view.chip.setAttribute('aria-expanded', String(!view.panel.hidden));
-    paintView();
-  });
-  view.all.addEventListener('click', () => { for (const y of sources.YEARS) if (viewWin && loadable(y, viewWin)) viewSel.add(y); paintTotals(); });
-  view.none.addEventListener('click', () => { viewSel.clear(); paintTotals(); });
-  view.dismiss.addEventListener('click', () => { dismissedWin = viewWin; view.panel.hidden = true; hideView(); });
-  view.go.addEventListener('click', () => {
-    if (!viewWin) return;
-    const vw = viewWin;
-    const years = [...sources.YEARS].reverse().filter((y) => viewSel.has(y) && loadable(y, vw));
-    if (!years.length) return;
-    const { lat, lon } = proj.toLonLat(vw.cx, vw.cy);
-    view.panel.hidden = true;
-    view.chip.setAttribute('aria-expanded', 'false');
-    if (state.selected == null || !years.includes(state.selected)) { state.selected = years[0]; writeHash(); }
-    load(vw, years, { lat, lon, label: 'Map view' });
-  });
+  /* ---------- saving photos ---------- */
+  const stem = (year) => { const c = map.getCenter(); return `denver-${sources.label(year)}-${c.lat.toFixed(5)}_${c.lng.toFixed(5)}`; };
 
-  /* ---------- status + hash ---------- */
-  function say(text, kind) {
-    status.textContent = text;
-    status.className = kind || '';
+  /* The view on screen for one year, as a JPEG. A mosaic year is asked for
+     once, straight from DRCOG's server at the screen's density and quality 95
+     (never finer than 3 in); anything else is what is on the map, redrawn on
+     a canvas. Resolves null when the year has nothing here. */
+  async function photo(year) {
+    const src = S[year], b = map.getBounds(), size = map.getSize();
+    if (src.stream && regionLL.contains(b.getCenter())) {
+      const sw = map.options.crs.project(b.getSouthWest()), ne = map.options.crs.project(b.getNorthEast());
+      const cos = Math.cos(b.getCenter().lat * Math.PI / 180);
+      const nativePx = (ne.x - sw.x) * cos / (SRC_RES * 0.3048);
+      const k = Math.min(dpr() >= 1.5 ? 2 : 1.5, nativePx / size.x, MAX_PX / Math.max(size.x, size.y));
+      const w = Math.round(size.x * k), h = Math.round(size.y * k);
+      const q = new URLSearchParams({ bbox: [sw.x, sw.y, ne.x, ne.y].join(','), bboxSR: '3857', imageSR: '3857', size: `${w},${h}`, format: 'jpg', compressionQuality: '95', f: 'image' });
+      return tiles.blob(`${src.stream}/exportImage?${q}`, undefined, false);
+    }
+    /* What is drawn: this year's tiles and patches, wherever a view of it is mounted. */
+    let v = [...views.values()].find((x) => x.on && x.year === year);
+    let temp = null;
+    if (!v) {
+      const c = map.getCenter();
+      if (how(year, c.lat, c.lng) !== 'tiles' && !patchUnder(year, viewBox())) return null;
+      temp = v = viewOf(9, year);
+      mount(v);
+      await Promise.all(v.layers.filter((l) => l.options.bounds.intersects(b)).map((l) => new Promise((res) => { l.once('load', res); setTimeout(res, 15000); })));
+    }
+    const k = dpr();
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(size.x * k); canvas.height = Math.round(size.y * k);
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.scale(k, k);
+    let drew = 0;
+    for (const l of v.layers) {
+      const ts = l.getTileSize();
+      for (const t of l.inView()) {
+        if (!t.el._ok || t.el._flat) continue;
+        const scale = map.getZoomScale(map.getZoom(), t.coords.z);
+        const p = map.latLngToContainerPoint(map.unproject([t.coords.x * ts.x, t.coords.y * ts.y], t.coords.z));
+        ctx.drawImage(t.el, p.x, p.y, ts.x * scale + 0.5, ts.y * scale + 0.5);
+        drew++;
+      }
+    }
+    for (const p of rec(year).patches) {
+      const bb = L.latLngBounds(warp.bounds(p.rect));
+      if (!bb.intersects(b)) continue;
+      const nw = map.latLngToContainerPoint(bb.getNorthWest()), se = map.latLngToContainerPoint(bb.getSouthEast());
+      const W = Math.min(OV_MAX, Math.max(256, Math.ceil((se.x - nw.x) * k)));
+      ctx.drawImage(warp.toMercator(p.canvas, p.win, p.rect, W), nw.x, nw.y, se.x - nw.x, se.y - nw.y);
+      drew++;
+    }
+    if (temp) unmount(temp);
+    if (!drew) return null;
+    return new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.93));
   }
 
-  async function updateCacheNote() {
-    const st = await cache.stats();
-    const el = $('#cache-note');
-    if (!el) return;
-    el.textContent = st.entries
-      ? `${st.entries} rendered window${st.entries === 1 ? '' : 's'} (${(st.bytes / 1e6).toFixed(1)} MB) kept in this browser.`
-      : 'Nothing cached in this browser yet.';
+  function deliver(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  }
+  /* On a phone the share sheet is how a picture reaches the photo library. */
+  async function hand(blob, name) {
+    const file = typeof File !== 'undefined' ? new File([blob], name, { type: blob.type || 'image/jpeg' }) : null;
+    if (file && L.Browser.mobile && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    deliver(blob, name);
+  }
+  const CREDITS = [
+    'Denver Aerials — https://drapp.myjimmycloud.com',
+    '',
+    'Aerial photographs 2002-2026: Denver Regional Aerial Photography Project,',
+    'Denver Regional Council of Governments (DRCOG), https://data.drcog.org,',
+    'licensed CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/).',
+    'Other years come from Arapahoe County, Boulder County, South Metro Fire',
+    'Rescue, the Colorado Department of Transportation and the Denver Public',
+    'Library; the file name says which year each picture is.',
+    '',
+  ];
+  async function saveOne() {
+    const year = state.sides[state.active].year;
+    toast(`Saving ${sources.label(year)}…`, 0);
+    try {
+      const b = await photo(year);
+      if (!b) return toast(`${sources.label(year)} has nothing loaded here to save.`);
+      await hand(b, stem(year) + '.jpg');
+      toast(`Saved ${sources.label(year)} · ${mb(b.size)}`);
+    } catch (e) { toast(`${sources.label(year)} did not save: ${e.message}`); }
+    paintMeter();
+  }
+  async function saveAll() {
+    const c = map.getCenter(), vb = viewBox();
+    const years = yearsHere().filter((y) => how(y, c.lat, c.lng) === 'tiles' || patchUnder(y, vb));
+    const skipped = yearsHere().filter((y) => !years.includes(y)).map((y) => sources.label(y));
+    const files = [];
+    for (const y of years) {
+      toast(`Saving ${sources.label(y)} (${files.length + 1} of ${years.length})…`, 0);
+      try {
+        const b = await photo(y);
+        if (b) files.push({ name: stem(y) + '.jpg', data: new Uint8Array(await b.arrayBuffer()) });
+      } catch (e) { /* that year is left out */ }
+      paintMeter();
+    }
+    if (!files.length) return toast('Nothing here to save.');
+    const here = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+    files.push({ name: 'CREDITS.txt', data: new TextEncoder().encode(CREDITS.concat([`Centre of these pictures: ${here}`, `Saved ${new Date().toISOString().slice(0, 10)}`]).join('\r\n')) });
+    const zip = DRAPP.zip(files);
+    deliver(zip, `denver-aerials-${c.lat.toFixed(5)}_${c.lng.toFixed(5)}.zip`);
+    toast(`Saved ${files.length - 1} years · ${mb(zip.size)}` + (skipped.length ? ` · not loaded here: ${skipped.join(', ')}` : ''), 7000);
   }
 
+  /* ---------- where ---------- */
+  let hashTimer = 0;
   function writeHash() {
-    if (state.lat == null) return;
-    const h = new URLSearchParams();
-    h.set('ll', `${state.lat.toFixed(6)},${state.lon.toFixed(6)}`);
-    if (state.selected != null) h.set('y', state.selected);
-    if (state.label) h.set('q', state.label);
-    history.replaceState(null, '', '#' + h.toString());
+    clearTimeout(hashTimer);
+    hashTimer = setTimeout(() => {
+      const c = map.getCenter(), h = new URLSearchParams();
+      h.set('ll', `${c.lat.toFixed(6)},${c.lng.toFixed(6)}`);
+      h.set('z', String(map.getZoom()));
+      h.set('y', state.sides.map((s) => s.year).join('-'));
+      try { history.replaceState(null, '', '#' + h.toString().replace(/%2C/g, ',')); } catch (e) { /* file:// */ }
+    }, 250);
   }
-
   function readHash() {
     const h = new URLSearchParams(location.hash.slice(1));
     const ll = (h.get('ll') || '').split(',').map(Number);
-    const y = +h.get('y');
-    if (sources.YEARS.includes(y)) state.selected = y;
-    state.fresh = h.get('fresh') === '1';
-    if (ll.length === 2 && ll.every((v) => Number.isFinite(v))) {
-      state.lat = ll[0]; state.lon = ll[1];
-      state.label = h.get('q') || `${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}`;
-      return true;
+    const ys = (h.get('y') || '').split('-').map(Number).filter((y) => sources.YEARS.includes(y)).slice(0, 2);
+    const out = { years: ys, q: h.get('q') || '' };
+    if (ll.length === 2 && ll.every(Number.isFinite)) { out.lat = ll[0]; out.lon = ll[1]; out.z = Math.max(9, Math.min(22, Math.round(+h.get('z')) || 19)); }
+    return out;
+  }
+  let pin = null;
+  function go(lat, lon, z, label) {
+    stopPlay();
+    map.setView([lat, lon], z, { animate: false });
+    if (pin) map.removeLayer(pin);
+    pin = null;
+    if (label) {
+      pin = L.circleMarker([lat, lon], { pane: 'marks', radius: 7, color: '#fff', weight: 2, fillColor: '#e8c36a', fillOpacity: 1, interactive: false }).addTo(map);
     }
-    if (h.get('q')) { input.value = h.get('q'); return 'geocode'; }
-    return false;
+    if (!regionLL.contains([lat, lon])) toast('That is outside the Denver region the photographs cover.', 6000);
   }
 
-  function go(lat, lon, label) {
-    state.lat = lat; state.lon = lon; state.label = label;
-    input.value = label;
-    writeHash();
-    show();
+  const form = $('#search'), input = $('#q'), sugg = $('#places');
+  function fillPlaces() {
+    sugg.innerHTML = '<h2>Places to start</h2>';
+    for (const [name, lat, lon, z] of PLACES) {
+      const b = el('button', '', name);
+      b.type = 'button';
+      b.addEventListener('click', () => { input.value = name; sugg.hidden = true; go(lat, lon, z, name); });
+      sugg.appendChild(b);
+    }
   }
-
-  /* ---------- controls ---------- */
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const q = input.value.trim();
     if (!q) return;
-    say('Finding that address…');
+    sugg.hidden = true;
+    input.blur();
+    const known = PLACES.find((p) => p[0].toLowerCase() === q.toLowerCase());
+    if (known) return go(known[1], known[2], known[3], known[0]);
+    form.classList.add('busy');
     try {
       const r = await geocode.geocode(q);
-      go(r.lat, r.lon, r.label);
-    } catch (e) {
-      say(e.message, 'warn');
-    }
+      go(r.lat, r.lon, Math.max(map.getZoom(), 19), r.label);
+    } catch (e) { toast(e.message, 7000); }
+    form.classList.remove('busy');
   });
-
+  input.addEventListener('focus', () => { if (!input.value.trim()) sugg.hidden = false; input.select(); });
+  input.addEventListener('input', () => { sugg.hidden = !!input.value.trim(); });
+  document.addEventListener('pointerdown', (ev) => {
+    if (!ev.target.closest('#search')) sugg.hidden = true;
+    if (!ev.target.closest('#save-wrap')) $('#save-menu').hidden = true;
+  });
   $('#locate').addEventListener('click', () => {
-    if (!navigator.geolocation) return say('This browser has no geolocation.', 'warn');
-    say('Asking the browser where you are…');
+    if (!navigator.geolocation) return toast('This browser has no location.');
+    toast('Finding you…', 0);
     navigator.geolocation.getCurrentPosition(
-      (pos) => go(pos.coords.latitude, pos.coords.longitude, `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`),
-      (err) => say('Location unavailable: ' + err.message, 'warn'),
+      (pos) => { toast(''); go(pos.coords.latitude, pos.coords.longitude, 19, 'You'); },
+      (err) => toast('Location unavailable: ' + err.message),
       { enableHighAccuracy: true, timeout: 10000 });
   });
 
-  /* Every year for the view on screen, without moving the map. */
-  $('#load-here').addEventListener('click', () => {
-    const c = map.getCenter();
-    state.lat = c.lat; state.lon = c.lng; state.label = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+  /* ---------- controls ---------- */
+  $('#prev').addEventListener('click', () => { stopPlay(); step(-1); });
+  $('#next').addEventListener('click', () => { stopPlay(); step(1); });
+  $('#play').addEventListener('click', togglePlay);
+  $('#compare').addEventListener('click', toggleCompare);
+  divider.addEventListener('pointerdown', dragDivider);
+  $('#tags').addEventListener('click', (ev) => {
+    const t = ev.target.closest('.tag');
+    if (!t) return;
+    state.active = +t.dataset.side;
+    chipSig = '';
+    assess(); paintAll();
+  });
+  $('#save').addEventListener('click', () => { $('#save-menu').hidden = !$('#save-menu').hidden; });
+  $('#save-one').addEventListener('click', () => { $('#save-menu').hidden = true; saveOne(); });
+  $('#save-all').addEventListener('click', () => { $('#save-menu').hidden = true; saveAll(); });
+  $('#share').addEventListener('click', async () => {
     writeHash();
-    show(true);
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      if (L.Browser.mobile && navigator.share) await navigator.share({ title: document.title, url: location.href });
+      else { await navigator.clipboard.writeText(location.href); toast('Link to this view copied.'); }
+    } catch (e) { if (e.name !== 'AbortError') toast(location.href, 8000); }
   });
-
-  yearBtn.addEventListener('click', () => {
-    menu.hidden = !menu.hidden;
-    yearBtn.setAttribute('aria-expanded', String(!menu.hidden));
+  const about = $('#about');
+  $('#info').addEventListener('click', async () => {
+    const kept = await tiles.stats(), win = await cache.stats();
+    const m = tiles.meter;
+    $('#usage').textContent = `This visit: ${mb(m.net)} downloaded in ${m.requests.toLocaleString()} requests` + (m.kept ? `, and ${mb(m.kept)} reused from this browser.` : '.') +
+      ` Kept in this browser: ${kept.tiles.toLocaleString()} map tiles and ${win.entries} archive reads (${mb(win.bytes)}).`;
+    about.showModal();
   });
-  document.addEventListener('click', (ev) => {
-    if (!menu.hidden && !ev.target.closest('.panel-years')) closeMenu();
+  $('#about-close').addEventListener('click', () => about.close());
+  about.addEventListener('click', (ev) => { if (ev.target === about) about.close(); });
+  function paintHd() {
+    const b = $('#hd');
+    b.hidden = dpr() < 1.5;
+    b.classList.toggle('on', prefs.sharp);
+    b.setAttribute('aria-pressed', String(prefs.sharp));
+  }
+  $('#hd').addEventListener('click', () => {
+    prefs.sharp = !prefs.sharp;
+    paintHd(); paintStatus();
+    toast(prefs.sharp ? 'Full detail on: when the map rests zoomed in, it sharpens to your screen. About three times the data.' : 'Full detail off: ordinary screen detail only, about a third of the data.', 5000);
+    if (prefs.sharp) restSoon();
   });
-  $('#year-prev').addEventListener('click', () => stepYear(-1));
-  $('#year-next').addEventListener('click', () => stepYear(1));
+  $('#forget').addEventListener('click', async () => {
+    await Promise.all([tiles.clear(), cache.clear()]);
+    $('#usage').textContent = 'Kept imagery cleared from this browser.';
+  });
   document.addEventListener('keydown', (ev) => {
-    if (ev.target.closest('input, textarea')) return;
-    if (ev.key === 'ArrowLeft') stepYear(-1);
-    if (ev.key === 'ArrowRight') stepYear(1);
-    if (ev.key === 'Escape' && !menu.hidden) closeMenu();
-  });
-  const opacity = $('#opacity');
-  opacity.addEventListener('input', () => { state.opacity = +opacity.value / 100; showBest(); });
-
-  /* ---------- save ---------- */
-  function download(canvas, name) {
-    const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
-    a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-  }
-  const fileStem = (year, win) => `drapp-${year}-${proj.toLonLat(win.cx, win.cy).lat.toFixed(5)}_${proj.toLonLat(win.cx, win.cy).lon.toFixed(5)}-${win.w.toFixed(0)}x${win.h.toFixed(0)}ft`;
-
-  /* A year's picture as a state-plane canvas: a loaded window as it is; a
-     streamed year, which is only tiles on the map, is asked once for the view
-     on screen at the screen's density (3 in at the finest), at most `maxPx`
-     a side. */
-  async function pictureOf(rec, maxPx) {
-    if (!rec.tiled) return rec.status === 'ready' && rec.win ? { canvas: rec.canvas, win: rec.win } : null;
-    let w = viewWindow();
-    while (w.px > maxPx || w.py > maxPx) w = proj.rewindow(w, proj.snapRes(w.res * 2));
-    const canvas = document.createElement('canvas');
-    canvas.width = w.px; canvas.height = w.py;
-    try { await imageserver.render(sources.SOURCES[rec.year].stream, w, canvas); } catch (e) { return null; }
-    return { canvas, win: w };
-  }
-
-  $('#save-year').addEventListener('click', async () => {
-    const cur = currentYear();
-    if (cur == null) return;
-    const rec = recs.get(cur);
-    if (rec.tiled) say(`Saving ${sources.label(cur)} for the view on screen…`);
-    const p = await pictureOf(rec, CAP_VIEW);
-    if (!p) return say(`${sources.label(cur)} did not come back from DRCOG's server; try again.`, 'warn');
-    download(warp.toMercator(p.canvas, p.win, warp.mercRect(p.win), p.win.px), fileStem(cur, p.win) + '.png');   // north up, source pixels
+    if (ev.target.closest('input, textarea, dialog')) return;
+    if (ev.key === 'ArrowLeft') { stopPlay(); step(-1); }
+    else if (ev.key === 'ArrowRight') { stopPlay(); step(1); }
+    else if (ev.key === ' ') { ev.preventDefault(); togglePlay(); }
+    else if (ev.key === 'c') toggleCompare();
+    else if (ev.key === '/') { ev.preventDefault(); input.focus(); }
   });
 
-  async function contactSheet() {
-    if (!sources.YEARS.some((y) => recs.get(y).status === 'ready')) return null;
-    const pics = new Map(await Promise.all(sources.YEARS.map(async (y) => [y, await pictureOf(recs.get(y), 1536)])));
-    const cols = 4, gap = 16, label = 34, footer = 40;
-    const rows = Math.ceil(sources.YEARS.length / cols);
-    const sheet = document.createElement('canvas');
-    sheet.width = cols * CELL + (cols + 1) * gap;
-    sheet.height = rows * (CELL + label) + (rows + 1) * gap + footer;
-    const ctx = sheet.getContext('2d');
-    ctx.fillStyle = '#0f1418'; ctx.fillRect(0, 0, sheet.width, sheet.height);
-    ctx.textBaseline = 'middle';
-    ctx.imageSmoothingQuality = 'high';
-    sources.YEARS.forEach((year, i) => {
-      const rec = recs.get(year);
-      const x = gap + (i % cols) * (CELL + gap), y = gap + Math.floor(i / cols) * (CELL + label + gap);
-      ctx.fillStyle = '#e6e9ec'; ctx.font = '600 22px system-ui, sans-serif';
-      ctx.fillText(sources.label(year), x, y + label / 2);
-      ctx.fillStyle = '#98a3ad'; ctx.font = '14px system-ui, sans-serif';
-      if (rec.meta) ctx.fillText(rec.meta, x + 70, y + label / 2);
-      const pic = pics.get(year);
-      if (pic) {
-        const s = Math.min(CELL / pic.win.px, CELL / pic.win.py), w = pic.win.px * s, h = pic.win.py * s;
-        ctx.fillStyle = '#171e25'; ctx.fillRect(x, y + label, CELL, CELL);
-        ctx.drawImage(pic.canvas, x + (CELL - w) / 2, y + label + (CELL - h) / 2, w, h);
-      } else {
-        ctx.fillStyle = '#171e25'; ctx.fillRect(x, y + label, CELL, CELL);
-        ctx.fillStyle = '#98a3ad'; ctx.textAlign = 'center';
-        ctx.fillText(rec.st.textContent.slice(0, 60), x + CELL / 2, y + label + CELL / 2);
-        ctx.textAlign = 'left';
-      }
+  /* ---------- sharpening when the map rests ---------- */
+  let sharpTimer = 0;
+  function restSoon() {
+    clearTimeout(sharpTimer);
+    if (!prefs.sharp || dpr() < 1.5) return;
+    sharpTimer = setTimeout(async () => {
+      if (map.getZoom() < SHARPEN_ZOOM || state.playing) return;
+      for (const s of state.sides) if (s.view && s.view.on) for (const l of s.view.layers) await l.sharpen();
+    }, 1500);
+  }
+
+  /* ---------- start ---------- */
+  function init() {
+    regionLL = regionBounds();
+    const h = readHash();
+    map = L.map('map', { zoomControl: false, attributionControl: false, minZoom: 9, maxZoom: 22, zoomSnap: 1, wheelPxPerZoomLevel: 90, maxBounds: regionLL.pad(1.5), maxBoundsViscosity: 0.6 })
+      .setView([h.lat ?? HOME.lat, h.lon ?? HOME.lon], h.z ?? HOME.z);
+    if (!L.Browser.mobile) L.control.zoom({ position: 'bottomright' }).addTo(map);
+    map.createPane('base').style.zIndex = 200;
+    map.createPane('context').style.zIndex = 300;
+    map.createPane('marks').style.zIndex = 620;
+    /* Outside the photographed region Esri's world imagery is the ground.
+       Zoomed in, its tiles are never asked for inside the region; far out,
+       where the flight's ragged edge is on screen, they are a few small
+       tiles under the whole view. */
+    const Base = tiles.Layer.extend({
+      _isValidTile(coords) {
+        if (!tiles.Layer.prototype._isValidTile.call(this, coords)) return false;
+        return coords.z <= 12 || !regionLL.contains(this._tileCoordsToBounds(coords));
+      },
     });
-    ctx.fillStyle = '#98a3ad'; ctx.font = '14px system-ui, sans-serif';
-    const credits = ['DRAPP imagery, DRCOG Regional Data Catalog (CC BY 3.0)',
-      ...new Set(sources.YEARS.filter((y) => recs.get(y).status === 'ready' && recs.get(y).credit).map((y) => recs.get(y).credit))];
-    const l = state.load;
-    ctx.fillText(`${l ? l.label : 'Map view'} · grid north up · ${credits.join(' · ')} · drapp.myjimmycloud.com`, gap, sheet.height - footer / 2);
-    return sheet;
-  }
-  $('#save-all').addEventListener('click', async () => {
-    say('Putting every year on one sheet…');
-    const sheet = await contactSheet();
-    if (!sheet) return say('Nothing rendered yet to save.', 'warn');
-    const l = state.load;
-    download(sheet, `drapp-all-years-${l ? l.lat.toFixed(5) + '_' + l.lon.toFixed(5) : 'view'}.png`);
-  });
-  $('#clear-cache').addEventListener('click', async (ev) => {
-    ev.preventDefault();
-    await cache.clear();
-    updateCacheNote();
-    say('Cache cleared. The next address will be fetched fresh.');
-  });
+    baseLayer = new Base({ pane: 'base', kind: 'xyz', tileSize: 256, minZoom: 0, maxNativeZoom: 17, service: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' }).addTo(map);
 
-  /* ---------- the opening view ---------- */
-  /* A link with no address opens on the Colorado State Capitol dome
-     (Wikipedia's coordinates, en.wikipedia.org/wiki/Colorado_State_Capitol)
-     at the zoom where one device pixel is about one 3-inch source pixel —
-     19.5 on a phone, 20.5 on a plain desktop screen — with the newest
-     streamed year on show as tiles, which at that zoom are the source's own
-     3 inches. Every other year is "Every year here" or "Load this view". */
-  const CAPITOL = { lat: 39.7392321, lon: -104.9848677, label: 'Colorado State Capitol' };
-  function zoom3in(lat) {
-    const mPerCss0 = (2 * R / 256) * Math.cos(lat * Math.PI / 180);
-    const z = Math.log2(mPerCss0 / (SRC_RES * 0.3048 * dpr()));
-    return Math.min(21, Math.max(VIEW_MIN_ZOOM, Math.floor(z * 2) / 2));
-  }
-  function openHome() {
-    map.setView([CAPITOL.lat, CAPITOL.lon], zoom3in(CAPITOL.lat), { animate: false });
-    if (state.selected == null) state.selected = [...sources.YEARS].reverse().find(tiled);
-    showBest();
+    if (h.years.length) { state.sides = h.years.map((y) => ({ year: y, view: null })); state.wantRead = h.years[0]; }
+    for (const s of state.sides) if (S[s.year].stream) state.contextYear = s.year;
+    $('#compare').classList.toggle('on', state.sides.length === 2);
+    fillPlaces();
+    paintHd();
+    tiles.watch(paintMeter);
+    tiles.prune();
+
+    map.on('move', () => { if (state.sides.length === 2) clipSides(); });
+    map.on('zoomend', () => redrawAll());
+    map.on('moveend', () => { clipSides(); assessSoon(); writeHash(); restSoon(); });
+    map.on('movestart', () => clearTimeout(sharpTimer));
+    map.on('resize', () => { clipSides(); assessSoon(); });
+    /* A link pasted over this one, or the back button. Our own updates use
+       replaceState, which does not fire this. */
+    window.addEventListener('hashchange', () => {
+      const n = readHash();
+      if (n.years.length) {
+        for (const v of views.values()) if (v.side >= n.years.length) unmount(v);
+        state.sides = n.years.map((y) => ({ year: y, view: null }));
+        state.active = 0; state.wantRead = n.years[0]; chipSig = '';
+        $('#compare').classList.toggle('on', state.sides.length === 2);
+      }
+      if (n.lat != null) map.setView([n.lat, n.lon], n.z, { animate: false });
+      showSides();
+    });
+    showSides();
+    restSoon();
+    if (h.lat == null && h.q) { input.value = h.q; form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit')); }
   }
 
-  /* ---------- boot ---------- */
-  initMap();
-  for (const y of [...sources.YEARS].reverse()) recs.set(y, makeRec(y));
-  const h = readHash();
-  paintButton();
-  showBest();
-  if (h === true) { input.value = state.label; show(); }
-  else if (h === 'geocode') form.requestSubmit();
-  else openHome();
-  updateCacheNote();
-
-  DRAPP.app = { state, show, load, recs, contactSheet, currentYear, tileRes, viewWindow, covers, over, clip, srcResOf, map: () => map, base: () => base };
+  DRAPP.app = { state, recs, views, map: () => map, how, over, share, readPlan, sideStatus, pick, step, toggleCompare, photo, yearsHere, layerSpecs };
+  init();
 })();

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Page smoke test — loads index.html in jsdom with its real scripts, network
-   stubbed to fail, and checks the page still builds its cards, reads the hash,
-   and reports failures instead of throwing.
+   stubbed to fail, and checks the page still builds its timeline, reads the
+   hash, plans a read inside its budget, and says so instead of throwing.
    Run: node scripts/smoke_dom.mjs   (needs `npm install` once, dev-only) */
 import { JSDOM, ResourceLoader, VirtualConsole } from 'jsdom';
 import { fileURLToPath } from 'node:url';
@@ -30,7 +30,7 @@ vc.on('jsdomError', (e) => {
 vc.on('error', (...a) => pageErrors.push(a.join(' ')));
 
 const dom = await JSDOM.fromFile(path.join(ROOT, 'index.html'), {
-  url: 'http://localhost/#ll=39.748200,-104.993500&s=600&q=1001%2017th%20St',
+  url: 'http://localhost/#ll=39.748200,-104.993500&z=19&y=2014-2024',
   runScripts: 'dangerously',
   resources: new LocalOnly(),
   pretendToBeVisual: true,
@@ -52,6 +52,7 @@ const dom = await JSDOM.fromFile(path.join(ROOT, 'index.html'), {
     window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
     window.HTMLDialogElement.prototype.close = function () { this.open = false; };
     window.requestAnimationFrame = (f) => setTimeout(f, 0);
+    window.AbortSignal = window.AbortSignal || AbortSignal;
   },
 });
 const { window } = dom, { document } = window;
@@ -60,135 +61,83 @@ await sleep(1500);
 
 const fails = [];
 const check = (cond, msg) => { if (!cond) fails.push(msg); };
-
 if (pageErrors.length) { console.error('page errors:\n - ' + pageErrors.join('\n - ')); }
-const rows = [...document.querySelectorAll('.yrow')];
-const N = window.DRAPP.sources.YEARS.length;
-if (rows.length < 12) { console.error('SMOKE FAIL: page did not build its year rows'); process.exit(1); }
-check(rows.length === N && N === 24, `expected 24 year rows, got ${rows.length}`);
-check(rows[0].dataset.year === '2026' && rows[N - 1].dataset.year === '1930', 'rows run 2026 → 1930');
-check(document.querySelector('.yrow[data-year="1960"] b').textContent === '1960s', 'a decade cache is labelled as a decade');
-check(window.DRAPP.sources.isDrapp(2024) && !window.DRAPP.sources.isDrapp(1933) && !window.DRAPP.sources.isDrapp(2026), 'DRAPP years are told apart from provider years');
-check(window.DRAPP.providers.covers(window.DRAPP.sources.SOURCES[1933].providers[0], 39.7482, -104.9935), 'downtown Denver is inside the 1933 King coverage');
-check(!window.DRAPP.providers.covers(window.DRAPP.sources.SOURCES[1977].providers[0], 39.7482, -104.9935), 'downtown Denver is outside the Boulder 1977 coverage');
-check(!!document.querySelector('#map .leaflet-container, #map.leaflet-container'), 'Leaflet map initialised');
-check(document.querySelector('#addr').value.includes('1001 17th St'), 'address from hash filled the input');
-check(!document.querySelector('#sizes'), 'the square-size buttons are gone');
-check(/Every year here/.test(document.querySelector('#load-here').textContent), 'the centre button loads every year for the view');
-/* With the network dead every window year must land in a failure state,
-   never a hang; streamed years are tile layers and stay pickable. */
-const recs = window.DRAPP.app.recs;
-const S0 = window.DRAPP.sources;
-const streamed = [...recs.values()].filter((r) => S0.SOURCES[r.year].stream);
-check(streamed.map((r) => r.year).sort().join() === '2018,2020,2022,2024', `streamed years are 2018–2024, got ${streamed.map((r) => r.year)}`);
-check(streamed.every((r) => r.tiled && r.status === 'ready' && !r.win), 'streamed years are tiles, with no window loaded');
-const failed = [...recs.values()].filter((r) => !r.tiled && (r.status === 'failed' || r.status === 'download')).length;
-check(failed === N - streamed.length, `all ${N - streamed.length} window years should report failure offline, ${failed} did`);
-check(/only Boulder County/.test(document.querySelector('.yrow[data-year="1977"] .st').textContent), 'a year that does not cover the point says which county it is for');
-const lay = recs.get(2024).layer;
-const M = window.DRAPP.app.map();
-check(lay && M.hasLayer(lay) && lay.options.pane === 'years', '2024 is on the map as its own tile layer');
-check(lay.options.maxZoom === 22 && lay.options.nativeFt === 0.25, 'the year layer goes to zoom 22 and stops sharpening at 3 in');
-check(/exportImage\?/.test(lay.getTileUrl({ x: 213000, y: 388000, z: 20 })) && /compressionQuality=95/.test(lay.getTileUrl({ x: 213000, y: 388000, z: 20 })), 'a year tile is an exportImage call at quality 95');
-check(!/streaming|preview/.test(document.querySelector('#ov-badge').textContent), 'no blurry preview or streaming wait in the label');
-check(document.querySelector('#year-btn').textContent.includes('loading') === false || true, 'year button rendered');
+if (!window.DRAPP || !window.DRAPP.app) { console.error('SMOKE FAIL: the page did not start'); process.exit(1); }
 
-/* Tile density: a tile is asked at the screen's density, never finer on the
-   ground than the source. At Denver a 512 px tile at zoom 20 is ~76 m of
-   Mercator, ~59 m of ground: 3 in is ~772 px, so dpr 1 asks 512 (4.5 in) and
-   dpr 2 would ask 1024 but stops at 772; at zoom 21 the tile is half that
-   ground and stops at ~386, the source's own 3 in. */
-const B = window.DRAPP.basemaps;
-const sz20 = 2 * 20037508.342789244 / (2 ** 20 * 256 / 512), myDenver = 4828000;
-const px20 = B.tilePx(512, sz20, myDenver, 0.25), px21 = B.tilePx(512, sz20 / 2, myDenver, 0.25);
-check(px20 === 512, `zoom 20 at dpr 1 asks for 512 px, got ${px20}`);
-check(px21 >= 380 && px21 <= 392, `zoom 21 stops at the source pixel (~386 px), got ${px21}`);
-check(B.tilePx(512, sz20, myDenver) === 512 && B.tilePx(512, sz20, myDenver, 1) < 200, 'a coarser source asks for fewer pixels');
-check(B.nativeZoom(0.25) === 21, `at dpr 1 the tiles stop sharpening at zoom 21, got ${B.nativeZoom(0.25)}`);
-const tr = window.DRAPP.app.tileRes(recs.get(2024).layer);
-check(tr >= 0.24 && tr < 1, `the label reads the tile pixel at the opening zoom: ${tr}`);
-const P = window.DRAPP.proj;
+const { app: A, sources: S, proj: P, estimate: E, tiles: T, providers: PR } = window.DRAPP;
+const M = A.map();
+check(!!document.querySelector('#map.leaflet-container'), 'Leaflet map initialised');
+check(S.YEARS.length === 24 && S.YEARS[0] === 1930 && S.YEARS[23] === 2026, `24 years, 1930 to 2026: ${S.YEARS}`);
+check(S.isDrapp(2024) && S.isDrapp(2026) && !S.isDrapp(1933), 'DRAPP years are told apart from provider years');
+check(!!S.SOURCES[2026].stream && S.SOURCES[2026].interim, '2026 is DRCOG\'s interim mosaic');
+
+/* The hash: place, zoom, and two years means compare is on. */
+check(Math.abs(M.getCenter().lat - 39.7482) < 1e-6 && M.getZoom() === 19, 'the hash set the view');
+check(A.state.sides.length === 2 && A.state.sides[0].year === 2014 && A.state.sides[1].year === 2024, 'two years in the hash open compare, older on the left');
+check(!document.querySelector('#divider').hidden && document.querySelector('#tag-0 b').textContent === '2014', 'the divider and its year tags are up');
+
+/* The timeline shows the years that exist downtown, and no others. */
+const chips = [...document.querySelectorAll('#chips .chip')].map((c) => c.textContent);
+check(chips.join() === '1933,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026', `downtown timeline: ${chips}`);
+check(document.querySelector('.chip[data-year="2014"]').classList.contains('need'), 'an archive year not yet read is marked as needing a load');
+check(document.querySelector('.chip[data-year="2024"]').classList.contains('now'), 'a mosaic year is instant');
+check(A.how(1977, 39.7482, -104.9935) === null && A.how(1933, 39.7482, -104.9935) === 'tiles', '1977 is Boulder County only; 1933 covers downtown');
+check(A.how(2014, 39.7482, -104.9935) === 'read' && A.how(2024, 39.7482, -104.9935) === 'tiles', '2014 downtown is a read, 2024 is tiles');
+check(A.how(2024, 38.83, -104.82) === null, 'Colorado Springs is outside the region');
+check(PR.covers(S.SOURCES[1933].providers[0], 39.7482, -104.9935), 'downtown Denver is inside the 1933 King coverage');
+
+/* Tiles: a first ask is one image pixel per CSS pixel at quality 78; the
+   sharpen pass asks for the screen's density, never finer than 3 in. */
+const lay = A.state.sides[1].view.layers[0];
+check(M.hasLayer(lay) && lay.options.kind === 'image' && lay.options.tileSize === 512, '2024 is on the map as 512 px mosaic tiles');
+const u = lay.url({ x: 109216, y: 198944, z: 20 }, false);
+check(/exportImage\?/.test(u) && /size=512%2C512/.test(u) && /compressionQuality=78/.test(u), `a tile is an exportImage call, 512 px, quality 78: ${u.slice(-90)}`);
+const sz20 = 2 * 20037508.342789244 / (2 ** 20 * 256 / 512), my = 4828000;
+check(T.tilePx(512, sz20, my, 0.25, 1) === 512, 'zoom 20 at one pixel per CSS pixel asks for 512');
+check(T.tilePx(512, sz20, my, 0.25, 2) > 700 && T.tilePx(512, sz20, my, 0.25, 2) < 800, `zoom 20 sharpened stops at the source's 3 in (~772 px): ${T.tilePx(512, sz20, my, 0.25, 2)}`);
+check(T.tilePx(512, sz20 / 2, my, 0.25, 2) < 400, 'zoom 21 is already at the source pixel');
+check(T.nativeZoom(0.25) === 21, `tiles stop at zoom 21: ${T.nativeZoom(0.25)}`);
+const arap = A.layerSpecs(2008)[0];
+check(arap.kind === 'map' && arap.layer === 9 && arap.detectFlat, 'Arapahoe 2008 is a map-service layer whose blank tiles are hidden');
+check(A.layerSpecs(1933)[0].kind === 'xyz' && A.layerSpecs(1933)[0].tileSize === 256, '1933 is a plain tile cache');
+
+/* The read plan: an archive year is read at the screen's density for as much
+   of the middle of the view as the budget buys. */
+const vb = { cx: 3142421.6, cy: 1697808.8 };
+const idx = [{ kind: 'tif', image: 'x', bbox: { xmin: 3141392, ymin: 1695032, xmax: 3144032, ymax: 1700312 } }];
+const plan = A.readPlan(2016, idx, 39.7482, -104.9935);
+check(plan.est && plan.est.bytes <= 8e6 * 1.05 && plan.win.px <= 4096, `a 2016 read stays inside 8 MB: ${JSON.stringify(plan.est)}`);
+check(plan.win.xmin % 0.25 === 0 && plan.win.res >= 0.25, 'the read sits on DRAPP\'s 3 in grid');
+const big = A.readPlan(2016, idx, 39.7482, -104.9935, 40e6);
+check(big.win.w * big.win.h >= plan.win.w * plan.win.h, 'a bigger budget buys at least as much ground');
 const w = P.windowFor(3142421.6, 1697808.8, 300, 300, 0.25);
-check(w.xmin % 0.25 === 0 && w.ymax % 0.25 === 0 && w.px === 1200 && w.py === 1200 && w.res === 0.25, `window snaps to the grid: ${JSON.stringify(w)}`);
-check(P.windowFor(0, 0, 100, 60, 0.3).res === 0.5, 'a resolution off the grid rounds up to the next grid step');
-const r = P.rewindow(w, 1);
-check(r.res === 1 && r.px >= 300 && r.px <= 301 && r.xmin <= w.xmin && r.xmax >= w.xmax && r.xmin % 1 === 0, 'a coarser sibling window covers the same ground on its own grid');
-check(window.DRAPP.app.covers(w, w) && !window.DRAPP.app.covers(w, P.windowFor(3142421.6 + 200, 1697808.8, 300, 300, 0.25)), 'coverage: a window covers itself, not a view centred outside it');
-check(!window.DRAPP.app.covers(P.rewindow(w, 1), w), 'a 1 ft window does not serve a 3 in view');
-/* Sharpening: the spot on screen inside a coarse window, at the screen's density. */
-const A = window.DRAPP.app;
-const coarse = P.windowFor(3142421.6, 1697808.8, 4000, 4000, 1);
-const spot = P.windowFor(3142421.6 + 100, 1697808.8, 200, 400, 0.25);
-const c = A.clip(coarse, spot);
-check(c && c.res === 0.25 && c.xmin >= coarse.xmin && c.xmax <= coarse.xmax && Math.abs(c.w - spot.w) <= 0.5, `the spot inside a coarse window clips to the spot at 3 in: ${JSON.stringify(c)}`);
-check(A.over(coarse, spot) && !A.covers(coarse, spot), 'a 1 ft window is under a 3 in view but does not serve it');
-check(A.clip(coarse, P.windowFor(3142421.6 + 9000, 1697808.8, 200, 200, 0.25)) === null, 'a spot outside the window clips to nothing');
-check(A.srcResOf(2024) === 0.25 && A.srcResOf(2022) === 0.25 && A.srcResOf(2004) === 1, `source pixel sizes: 2024 ${A.srcResOf(2024)}, 2004 ${A.srcResOf(2004)}`);
-check(window.DRAPP.app.base().item().plain.includes('newest DRCOG photos'), 'the label can name the base map in plain words');
-/* The estimate: an archive year at 3 in over a 300 ft square is one request a row. */
-const E = window.DRAPP.estimate;
-const idxTiles = [{ kind: 'tif', image: 'x', bbox: { xmin: 3141392, ymin: 1695032, xmax: 3144032, ymax: 1700312 } }];
-const e16 = E.forYear(2016, w, idxTiles, 39.7482, -104.9935);
+check(w.px === 1200 && w.res === 0.25, 'window snaps to the grid');
+const e16 = E.forYear(2016, w, idx, 39.7482, -104.9935);
 check(e16 && e16.requests === 1200 && e16.bytes > 5e6 && e16.bytes < 7e6, `2016 over 300 ft at 3 in: 1200 requests, ~6 MB, got ${JSON.stringify(e16)}`);
-check(Math.abs(E.forYear(2016, P.rewindow(w, 1), idxTiles, 0, 0).requests - 300) <= 1, 'a 1 ft window touches a quarter of the rows');
-check(E.forYear(2022, w, null, 0, 0).requests === 1, 'a streamed year is one request');
-check(E.forYear(2016, w, null, 0, 0) === undefined, 'an archive year with no tile lookup yet is unknown, not zero');
-check(E.forYear(2008, w, [], 39.9, -105.3).why === 'download only', 'MrSID outside Arapahoe says download only');
-check(E.forYear(1933, w, null, 39.7482, -104.9935).requests > 0 && E.forYear(1933, w, null, 39.7482, -104.9935).requests <= 64, '1933 tiles are counted, capped at 64');
-check(/^\d+ × \d+ ft|Load this view|Zoom in/.test(document.querySelector('#view-chip').textContent) || document.querySelector('#view-load').hidden, 'view prompt is hidden or labelled');
+check(A.over(w, { cx: w.cx, cy: w.cy }) && !A.over(w, { cx: w.cx + 400, cy: w.cy }), 'a patch serves a view whose middle is inside it');
 
-/* Base map picker: the catalog builds, the default is Bing aerial, and the
-   Wayback group degrades to a note rather than throwing when its list is dead. */
-const base = window.DRAPP.app.base();
-check(base.current() === 'newest', `default base map should be the newest imagery, got ${base.current()}`);
-check(document.querySelector('#base-btn').textContent === 'Newest available', 'base map button names the pick');
-document.querySelector('#base-btn').click();
+/* Picking and stepping. */
+A.state.active = 1;
+A.pick(2020);
 await sleep(50);
-const groups = [...document.querySelectorAll('.bgroup')];
-check(groups.length === 4, `expected 4 base map groups, got ${groups.length}`);
+check(A.state.sides[1].year === 2020 && document.querySelector('#year-now').textContent === '2020', 'picking a year puts it on the active side');
+A.step(1);
+await sleep(50);
+check(A.state.sides[1].year === 2022, 'stepping goes to the next year that exists here');
+A.toggleCompare();
+await sleep(50);
+check(A.state.sides.length === 1 && A.state.sides[0].year === 2022 && document.querySelector('#divider').hidden, 'leaving compare keeps the active side\'s year');
 
-/* The pannable years are read off sources.js, not listed here, so adding a
-   service there must add a base map without touching basemaps.js. */
-const S = window.DRAPP.sources;
-const servable = S.YEARS.filter((y) => S.SOURCES[y].stream || (S.SOURCES[y].providers || []).length)
-  .sort((a, b) => b - a).map(String);
-const yearGroup = groups.find((g) => /by year/.test(g.querySelector('h3').textContent) && !/Esri/.test(g.querySelector('h3').textContent));
-const listed = [...yearGroup.querySelectorAll('.bpick span')].map((e) => e.textContent);
-check(listed.join() === servable.join(),
-  `by-year base maps should be every served year, no floor of their own: ${listed.join()} vs ${servable.join()}`);
+/* The zip writer: a valid end-of-central-directory record and the right CRC. */
+check(window.DRAPP.crc32(new TextEncoder().encode('123456789')) === 0xCBF43926, 'crc32 of "123456789"');
 
-base.select('y2020');
-check(base.current() === 'y2020', 'picking a year switches the base map');
-check(document.querySelector('#base-btn').textContent === '2020', 'button follows the pick');
-
-/* "Newest available" must stop once something region-wide is stacked; stacking
-   every served year would fetch a tile per year per screen cell. */
-base.select('newest');
-const tiles = Object.values(window.DRAPP.app.map()._layers).filter((l) => l._url || l.getTileUrl).length;
-check(tiles > 1 && tiles <= 4, `newest-available should stack a handful of tile layers, got ${tiles}`);
-
-base.select('osm');
-check(window.DRAPP.app.map().getContainer().classList.contains('base-flat'),
-  'road base maps are marked flat so the CSS can knock them back');
-base.select('bing-aerial');
-check(!window.DRAPP.app.map().getContainer().classList.contains('base-flat'), 'aerial base maps are not dimmed');
-
-/* Out-of-region point. */
-window.DRAPP.app.state.lat = 38.83; window.DRAPP.app.state.lon = -104.82; window.DRAPP.app.state.label = 'Colorado Springs';
-window.DRAPP.app.show();
-await sleep(100);
-check(/outside the DRAPP footprint/.test(document.querySelector('#status').textContent), 'out-of-region message shown');
-
-/* Lat/lon parsing. */
+/* Lat/lon parsing and projection. */
 const ll = window.DRAPP.geocode.parseLatLon('-104.9935, 39.7482');
 check(ll && Math.abs(ll.lat - 39.7482) < 1e-9 && Math.abs(ll.lon + 104.9935) < 1e-9, 'swapped lon,lat is corrected');
-
-/* Projection sanity: downtown Denver lands near known state-plane coordinates. */
-const sp = window.DRAPP.proj.toStatePlane(-104.9935, 39.7482);
+const sp = P.toStatePlane(-104.9935, 39.7482);
 check(Math.abs(sp.x - 3142421.6) < 2 && Math.abs(sp.y - 1697808.8) < 2, `state plane projection off: ${sp.x}, ${sp.y}`);
 
 check(pageErrors.length === 0, 'page errors: ' + pageErrors.join(' | '));
-
 if (fails.length) { console.error('SMOKE FAIL\n - ' + fails.join('\n - ')); process.exit(1); }
-console.log('smoke ok: map + 24 year rows, grid windows, estimates, base map picker, hash state, offline failure states, region check, projection');
+console.log('smoke ok: map, timeline for the place, compare from the hash, tile sizes, read plan inside its budget, picking and stepping, zip crc, projection');
 process.exit(0);

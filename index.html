@@ -2,91 +2,113 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Denver Aerials — every DRAPP year at your address</title>
-<meta name="description" content="Type a Denver-area address and see it in every year of DRCOG's Denver Regional Aerial Photography Project, 2002 to today, read straight from the public archive in your browser — and further back where a county, CDOT or the Denver Public Library has a flight: 2000, 1998, 1977, 1953, 1933, 1930.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231d2a36'/%3E%3Cpath d='M6 22 14 10l5 7 3-4 4 9z' fill='%23e8c36a'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Denver Aerials</title>
+<meta name="description" content="The Denver region from the air at 3 inches a pixel, and the same ground in every year the Denver Regional Aerial Photography Project has flown. Browse, step through the years, compare two side by side, save the pictures.">
+<meta name="theme-color" content="#0f1418">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="js/vendor/leaflet.css">
 <link rel="stylesheet" href="css/site.css">
 </head>
 <body>
 
-<header class="masthead">
-  <h1>Denver Aerials</h1>
-  <p>Every year of the <a href="https://drcog.org/data-maps-modeling/data-acquisition-projects" rel="noopener">Denver Regional Aerial Photography Project</a> at one address, read from DRCOG's public archive in your browser — and back to 1930 where a county, a fire district, CDOT or the Denver Public Library has an older flight online. <a href="#about">How it works</a></p>
+<div id="map" aria-label="Aerial photograph map"></div>
+
+<div id="tags" hidden>
+  <button type="button" class="tag" id="tag-0" data-side="0" title="The timeline changes this side"><b></b></button>
+  <button type="button" class="tag" id="tag-1" data-side="1" title="The timeline changes this side"><b></b></button>
+</div>
+<div id="divider" hidden role="separator" aria-label="Drag to compare the two years"><span></span></div>
+
+<header class="top">
+  <form id="search" class="search" autocomplete="off" role="search">
+    <a class="brand" href="./" title="Denver Aerials">
+      <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#e8c36a"/><path d="M5 23 13 10l5 8 3-4 6 9z" fill="#1a1408"/></svg>
+      <span>Denver Aerials</span>
+    </a>
+    <label for="q" class="visually-hidden">Find an address or place</label>
+    <input id="q" name="q" type="search" placeholder="Find an address or place" spellcheck="false" enterkeyhint="search">
+    <button type="submit" class="icon" aria-label="Search" title="Search">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button type="button" id="locate" class="icon" aria-label="Go to where I am" title="Go to where I am">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <div id="places" class="places" hidden></div>
+  </form>
+
+  <nav class="tools" aria-label="Tools">
+    <button type="button" id="compare" aria-pressed="false" title="Compare two years side by side (C)">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3v18" stroke="currentColor" stroke-width="2"/><path d="M4 6h8v12H4z" fill="currentColor" opacity=".45"/></svg>
+      <span>Compare</span>
+    </button>
+    <div id="save-wrap">
+      <button type="button" id="save" aria-haspopup="true" aria-controls="save-menu" title="Save what is on screen as a photo">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 20h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Save</span>
+      </button>
+      <div id="save-menu" class="menu" hidden>
+        <button type="button" id="save-one">This year, as a photo<small>the view on screen, full detail, JPEG</small></button>
+        <button type="button" id="save-all">Every year here<small>one photo a year, in a zip</small></button>
+      </div>
+    </div>
+    <button type="button" id="share" title="Copy a link to this exact view">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3.3-3.3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0L5 13.3a4 4 0 0 0 5.7 5.7l1-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Link</span>
+    </button>
+    <button type="button" id="info" title="Where the photographs come from">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.3" fill="currentColor"/></svg>
+      <span>About</span>
+    </button>
+  </nav>
 </header>
 
-<div id="stage">
-  <div id="map" aria-label="Map"></div>
-  <div id="ov-badge" role="status" aria-live="polite" hidden><b></b> <span></span><small></small><i class="pbar" hidden><i></i></i></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
 
-  <div class="panel panel-addr">
-    <form id="addr-form" class="addrbar" autocomplete="off">
-      <label for="addr" class="visually-hidden">Address</label>
-      <input id="addr" name="addr" type="text" placeholder="Address in the Denver region, or lat, lon" spellcheck="false" enterkeyhint="search">
-      <button type="submit" class="primary" title="Go there and show every year">Go</button>
-      <button type="button" id="locate" title="Use my location" aria-label="Use my location">◎</button>
-    </form>
-    <div class="row">
-      <button type="button" id="load-here" class="chip" title="Load the older years for the view on screen; 2018 to 2024 are on the map already">Every year here</button>
-      <span class="dim seg-note">2018–2024 follow your zoom down to 3 in; older years load for the view on screen</span>
-    </div>
-    <p id="status" aria-live="polite"></p>
-  </div>
-
-  <div class="panel panel-years">
-    <div class="yearbar">
-      <button type="button" id="year-prev" aria-label="Earlier year">‹</button>
-      <button type="button" id="year-btn" aria-expanded="false" aria-controls="year-menu" title="Pick the year to show">Year</button>
-      <button type="button" id="year-next" aria-label="Later year">›</button>
-    </div>
-    <div id="year-src" class="dim"></div>
-    <div id="view-load" hidden>
-      <button type="button" id="view-chip" class="chip view-chip" aria-expanded="false" aria-controls="view-panel">Load this view…</button>
-      <div id="view-panel" hidden>
-        <p id="view-desc" class="dim"></p>
-        <div id="view-years"></div>
-        <div class="row view-actions">
-          <button type="button" id="view-go" class="primary">Load</button>
-          <button type="button" id="view-all" class="chip">All</button>
-          <button type="button" id="view-none" class="chip">None</button>
-          <button type="button" id="view-dismiss" class="chip">Not now</button>
-        </div>
-        <p class="dim view-note">2018–2024 are not listed: they are on the map as tiles at full detail. Nothing older is fetched until you say so; archive years cost one request per image row, and a wide view at 3 in is thousands of them.</p>
+<footer class="dock">
+  <div id="prompt" class="prompt" hidden></div>
+  <div class="timeline">
+    <div class="now">
+      <button type="button" id="prev" class="icon" aria-label="Earlier year" title="Earlier year (←)">‹</button>
+      <button type="button" id="play" class="icon" aria-pressed="false" aria-label="Play through the years" title="Play through the years (space)">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path class="p" d="M7 4.5v15l12-7.5z" fill="currentColor"/><path class="s" d="M6 5h4.5v14H6zM13.5 5H18v14h-4.5z" fill="currentColor"/></svg>
+      </button>
+      <button type="button" id="next" class="icon" aria-label="Later year" title="Later year (→)">›</button>
+      <div class="what">
+        <b id="year-now"></b>
+        <span id="src"></span>
       </div>
+      <button type="button" id="hd" aria-pressed="true" hidden title="Full detail: sharpen to this screen's own pixels when the map rests zoomed in">HD</button>
+      <span id="meter" title="Downloaded this visit">↓ 0 KB</span>
     </div>
-    <label id="fade" class="fade" hidden>Fade
-      <input type="range" id="opacity" min="0" max="100" value="100" aria-label="Imagery opacity">
-    </label>
-    <div id="year-menu" hidden>
-      <div class="rows"></div>
-      <div class="menu-foot">
-        <button type="button" id="save-year" disabled>Save PNG</button>
-        <button type="button" id="save-all">Save all years</button>
-      </div>
-    </div>
+    <div id="chips" class="chips" role="group" aria-label="Year"></div>
   </div>
-
-  <div class="panel panel-base">
-    <button type="button" id="base-btn" aria-expanded="false" aria-controls="base-menu" title="Choose the map under the imagery">Base map</button>
-    <div id="base-menu" hidden></div>
-  </div>
-</div>
-
-<footer class="about" id="about">
-  <h2>Where this comes from</h2>
-  <p>The tile index and the archive tiles are the <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, licensed <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 2018 to 2024 stream from DRCOG's mosaics hosted by Sanborn Geospatial; 2004 to 2016 are read straight from the raw GeoTIFFs on DRCOG's S3 archive, a few hundred bytes at a time, one image row per request, so nobody has to download a 446 MB file. 2002 (JPEG 2000) and 2008 (MrSID) are offered as downloads, except inside Arapahoe County, where the county's own service fills them in. The base map under the square is your pick of Bing, Esri world imagery, OpenStreetMap, or a whole DRAPP year — 2018 to 2024 render region-wide from the same mosaics, and <a href="https://livingatlas.arcgis.com/wayback/" rel="noopener">Esri’s World Imagery Wayback</a> has one Esri basemap per year back to 2014. Addresses are placed by the U.S. Census Bureau geocoder, falling back to <a href="https://nominatim.org" rel="noopener">Nominatim</a>.</p>
-  <p>Before DRAPP there is no regional programme, so the older years come from whoever flew them and cover only their own ground: <a href="https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer" rel="noopener">Arapahoe County</a> (2026, 2000, and a black-and-white 1998), <a href="https://maps.bouldercounty.org/arcgis/rest/services/RASTER" rel="noopener">Boulder County</a> (2000 and a 1 ft black-and-white 1977), South Metro Fire Rescue's decade-by-decade scans of its district from the 1950s to the 1990s, CDOT's scans of Golden in 1930, Boulder in 1948 and Englewood–Littleton in 1953, and the <a href="https://history.denverlibrary.org/maps/time-travelers/" rel="noopener">Denver Public Library</a>'s georeferenced 1933 King aerial survey of central Denver. Outside their footprints those years simply say so.</p>
-  <p>Every year is rendered on the same ground square (Colorado State Plane Central) and then warped onto the map, so features line up year to year — the county services draw onto that grid themselves, and the library's Web Mercator tiles are mosaicked and warped onto it here. Use ← and → to step through loaded years. Source and notes on <a href="https://github.com/jimmylowell/drapp_view" rel="noopener">GitHub</a>. Part of <a href="https://myjimmycloud.com">myjimmycloud.com</a>.</p>
-  <p><span id="cache-note"></span> Rendered squares stay in your browser so a refresh at the same address is instant; nothing leaves your machine. <a href="#" id="clear-cache">Clear the cache</a>.</p>
 </footer>
+
+<dialog id="about">
+  <button type="button" id="about-close" class="icon" aria-label="Close">✕</button>
+  <h1>Denver Aerials</h1>
+  <p>Every two years since 2002 the <a href="https://drcog.org/data-maps-modeling/data-acquisition-projects" rel="noopener">Denver Regional Aerial Photography Project</a> (DRAPP) has photographed the whole metro area from the air, down to 3 inches a pixel. The pictures are public. This page is a way to look at them: move around, step through the years, put two side by side, save what you find.</p>
+  <h2>How the years load</h2>
+  <p><b>2018 to 2026</b> come as map tiles from DRCOG's mosaics, hosted by Sanborn; 2026 is the interim mosaic. Nothing is fetched while the map is moving. When it stops, the tiles on screen arrive at ordinary screen detail.</p>
+  <p><b>2004 to 2016</b> are not served as a map anywhere for most of the region. Picking one reads just the ground on screen out of DRCOG's raw archive files and leaves it on the map. After that, moving somewhere new reads nothing until you press <i>Load here</i>, which says what it will cost first. 2002 and 2008 are in file formats a browser cannot open.</p>
+  <p><b>Inside Arapahoe County</b> the county's own map service has every flight from 1998 to 2026, so every year there is instant.</p>
+  <p><b>Before DRAPP</b> there was no regional programme. The older years come from whoever has scans online and cover only their own ground: the <a href="https://history.denverlibrary.org/maps/time-travelers/" rel="noopener">Denver Public Library</a>'s 1933 aerial survey of central Denver, <a href="https://maps.bouldercounty.org/arcgis/rest/services/RASTER" rel="noopener">Boulder County</a> (1977 and 2000), South Metro Fire Rescue's scans of its district by decade from the 1950s to the 1990s, and CDOT's scans of Golden (1930), Boulder (1948) and Englewood–Littleton (1953). The timeline only shows the years that exist where you are looking.</p>
+  <h2>Your data</h2>
+  <p id="usage"></p>
+  <p>On a phone or a high-density screen, <b>HD</b> on the timeline sharpens the picture to the screen's own pixels once the map has rested, zoomed in. It is about three times the data; tap it to turn it off.</p>
+  <p>Everything the page fetches is kept in this browser so the same ground costs nothing twice. Nothing is sent anywhere. <button type="button" id="forget" class="link">Clear what is kept</button></p>
+  <h2>Credits</h2>
+  <p>Aerial photographs and tile index: <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. Other years: <a href="https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer" rel="noopener">Arapahoe County</a>, Boulder County, South Metro Fire Rescue, the Colorado Department of Transportation, Denver Public Library. Ground outside the region: Esri World Imagery (Esri, Maxar, Earthstar Geographics). Addresses: U.S. Census Bureau geocoder and <a href="https://nominatim.org" rel="noopener">Nominatim</a>, © <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap contributors</a>. Map: <a href="https://leafletjs.com" rel="noopener">Leaflet</a>.</p>
+  <p>Code and notes on <a href="https://github.com/jimmylowell/drapp_view" rel="noopener">GitHub</a>. Part of <a href="https://myjimmycloud.com">myjimmycloud.com</a>.</p>
+</dialog>
 
 <script src="js/vendor/proj4.js"></script>
 <script src="js/vendor/geotiff.js"></script>
 <script src="js/vendor/leaflet.js"></script>
 <script src="js/proj.js"></script>
 <script src="js/sources.js"></script>
-<script src="js/basemaps.js"></script>
+<script src="js/tiles.js"></script>
 <script src="js/tileindex.js"></script>
 <script src="js/imageserver.js"></script>
 <script src="js/xyz.js"></script>
@@ -96,6 +118,7 @@
 <script src="js/warp.js"></script>
 <script src="js/estimate.js"></script>
 <script src="js/geocode.js"></script>
+<script src="js/zip.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
