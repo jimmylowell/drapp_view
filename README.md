@@ -20,8 +20,11 @@ What the page is for and how it behaves, in full: [docs/design.md](docs/design.m
   what the visit has downloaded, and one chip per year that exists where the map is
   centred. A solid chip is instant; a dashed chip is a year read out of DRCOG's archive
   for this view.
-- **Compare** splits the map with a draggable divider, older year on the left.
-- Arrow keys step years, space plays, `c` compares, `/` goes to search.
+- **Compare** splits the map with a draggable divider: side by side with the older year
+  on the left, or stacked with the older year on top. A phone held upright opens
+  stacked; the round button on the divider turns the split.
+- Arrow keys step years, space plays, `c` compares, `v` turns the split, `/` goes to
+  search.
 
 ## Two kinds of year
 
