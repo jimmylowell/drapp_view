@@ -71,10 +71,20 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 #divider::before { content: ""; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 8px rgba(0, 0, 0, 0.7); }
 #divider span { position: absolute; left: 3px; top: 50%; width: 38px; height: 38px; margin-top: -19px; border-radius: 50%; background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6); }
 #divider span::before { content: "‹ ›"; position: absolute; inset: 0; display: grid; place-items: center; color: #222; font-weight: 700; font-size: 16px; letter-spacing: 1px; }
+#divider.stack { left: 0; right: 0; bottom: auto; width: auto; height: 44px; margin: -22px 0 0; cursor: ns-resize; }
+#divider.stack::before { left: 0; right: 0; top: 21px; bottom: auto; width: auto; height: 2px; }
+#divider.stack span { left: 50%; top: 3px; margin: 0 0 0 -19px; }
+#divider.stack span::before { transform: rotate(90deg); }
+.flip { position: fixed; z-index: 905; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.5); box-shadow: var(--shadow); color: var(--ink); font-size: 18px; line-height: 1;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.flip:hover { background: rgba(40, 48, 56, 0.95); }
 #tags { position: fixed; z-index: 890; top: calc(70px + var(--safe-t)); left: 12px; right: 12px; display: flex; justify-content: space-between; pointer-events: none; }
 .tag { pointer-events: auto; padding: 5px 13px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line); box-shadow: var(--shadow); backdrop-filter: blur(10px); color: var(--dim); }
 .tag b { font-size: 18px; font-variant-numeric: tabular-nums; }
 .tag.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+/* Stacked: the older year's tag just above the line, the newer just below. */
+body.stacked #tags { right: auto; flex-direction: column; align-items: flex-start; gap: 22px; transform: translateY(-50%); }
 
 /* ---------- bottom: the timeline ---------- */
 .dock { position: fixed; z-index: 1000; left: 12px; right: 12px; bottom: calc(12px + var(--safe-b)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }

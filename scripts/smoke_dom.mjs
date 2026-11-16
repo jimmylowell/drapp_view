@@ -124,8 +124,16 @@ check(A.state.sides[1].year === 2020 && document.querySelector('#year-now').text
 A.step(1);
 await sleep(50);
 check(A.state.sides[1].year === 2022, 'stepping goes to the next year that exists here');
+/* The split runs either way: flipping stacks the years, older on top. */
+const wasStacked = A.stacked();
+A.flipSplit();
+check(A.stacked() === !wasStacked && document.querySelector('#divider').classList.contains('stack') === A.stacked(), 'the flip button turns the split the other way');
+check(document.body.classList.contains('stacked') === A.stacked() && !document.querySelector('#flip').hidden, 'stacked compare marks the page and keeps the flip button up');
+A.flipSplit();
+check(A.stacked() === wasStacked && !document.querySelector('#divider').classList.contains('stack') === !wasStacked, 'flipping again turns it back');
 A.toggleCompare();
 await sleep(50);
+check(document.querySelector('#flip').hidden, 'the flip button goes with compare');
 check(A.state.sides.length === 1 && A.state.sides[0].year === 2022 && document.querySelector('#divider').hidden, 'leaving compare keeps the active side\'s year');
 
 /* The zip writer: a valid end-of-central-directory record and the right CRC. */
