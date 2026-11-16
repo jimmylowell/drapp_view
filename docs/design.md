@@ -29,9 +29,13 @@ panning/zooming should not kill bandwidth immediately."
   sharp it is, what the visit has downloaded, and one chip per year **that exists where
   the map is centred**. A solid chip is instant. A dashed chip is a year that has to be
   read out of DRCOG's archive for this view.
-- **Compare** splits the map with a draggable divider, older year on the left. The year
-  tag on each half says which half the timeline is driving.
-- Arrow keys step years, space plays, `c` compares, `/` goes to search.
+- **Compare** splits the map with a draggable divider: side by side with the older year
+  on the left, or stacked with the older year on top. A screen taller than it is wide
+  (a phone held upright) opens stacked, so each half keeps the full width; the round
+  button on the divider turns it the other way for the rest of the visit. The year tag
+  on each half says which half the timeline is driving.
+- Arrow keys step years, space plays, `c` compares, `v` turns the split, `/` goes to
+  search.
 
 ## Two kinds of year
 

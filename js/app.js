@@ -60,6 +60,7 @@
     sides: [{ year: 2024, view: null }],   // one side normally; two while comparing (left, right)
     active: 0,                               // the side the timeline drives
     split: 0.5,
+    stack: null,   // null: stacked when the screen is taller than wide; true or false once flipped
     contextYear: 2024,
     playing: 0,
     read: null,                              // the archive read in flight: {year, ctl, frac, note}
@@ -599,23 +600,54 @@
     if (text && ms) toastTimer = setTimeout(() => { t.hidden = true; }, ms);
   }
 
-  /* ---------- compare: two years, one divider ---------- */
-  const divider = $('#divider');
+  /* ---------- compare: two years, one divider ----------
+     Side by side (older on the left) or stacked (older on top). A screen
+     taller than it is wide stacks by itself, so each half keeps the full
+     width; the flip button by the divider overrides that for the visit. */
+  const divider = $('#divider'), flip = $('#flip');
+  const stacked = (size = map.getSize()) => state.stack ?? size.y > size.x;
+  /* Where the divider starts: the middle of the map, or when stacked, the
+     middle of the part the timeline does not cover. */
+  function middleSplit() {
+    const size = map.getSize();
+    if (!stacked(size) || !size.y) return 0.5;
+    const dockTop = $('.dock').getBoundingClientRect().top;
+    return dockTop > 0 ? Math.max(0.3, Math.min(0.6, dockTop / 2 / size.y)) : 0.5;
+  }
   function clipSides() {
     const comparing = state.sides.length === 2;
     divider.hidden = !comparing;
+    flip.hidden = !comparing;
     $('#tags').hidden = !comparing;
     document.body.classList.toggle('comparing', comparing);
-    const size = map.getSize();
-    const x = Math.round(size.x * state.split);
-    divider.style.left = x + 'px';
+    const size = map.getSize(), stack = stacked(size);
+    document.body.classList.toggle('stacked', comparing && stack);
+    divider.classList.toggle('stack', stack);
+    divider.setAttribute('aria-orientation', stack ? 'horizontal' : 'vertical');
+    const at = Math.round((stack ? size.y : size.x) * state.split);
+    divider.style.left = stack ? '' : at + 'px';
+    divider.style.top = stack ? at + 'px' : '';
+    /* The flip button sits on the divider line, just past its handle. */
+    flip.style.left = (stack ? size.x / 2 + 50 : at) + 'px';
+    flip.style.top = (stack ? at : size.y / 2 + 50) + 'px';
+    flip.textContent = stack ? '⇄' : '⇅';
+    flip.title = stack ? 'Show the two years side by side' : 'Show the two years one above the other';
+    flip.setAttribute('aria-label', flip.title);
+    $('#tags').style.top = stack ? at + 'px' : '';
     const nw = map.containerPointToLayerPoint([0, 0]), se = map.containerPointToLayerPoint(size);
-    const cut = nw.x + x;
+    const cut = (stack ? nw.y : nw.x) + at;
     for (const v of views.values()) {
       if (!comparing) { v.pane.style.clipPath = ''; continue; }
-      const [l, r] = v.side === 0 ? [nw.x, cut] : [cut, se.x];
-      v.pane.style.clipPath = `polygon(${l}px ${nw.y}px, ${r}px ${nw.y}px, ${r}px ${se.y}px, ${l}px ${se.y}px)`;
+      let [l, r, t, b] = [nw.x, se.x, nw.y, se.y];
+      if (stack) [t, b] = v.side === 0 ? [nw.y, cut] : [cut, se.y];
+      else [l, r] = v.side === 0 ? [nw.x, cut] : [cut, se.x];
+      v.pane.style.clipPath = `polygon(${l}px ${t}px, ${r}px ${t}px, ${r}px ${b}px, ${l}px ${b}px)`;
     }
+  }
+  function flipSplit() {
+    state.stack = !stacked();
+    state.split = middleSplit();
+    clipSides();
   }
   function toggleCompare() {
     stopPlay();
@@ -632,7 +664,7 @@
       state.sides = [{ year: older, view: null }, { year: cur, view: null }];
       state.active = 0;
       state.wantRead = older;
-      state.split = 0.5;
+      state.split = middleSplit();
     }
     $('#compare').classList.toggle('on', state.sides.length === 2);
     $('#compare').setAttribute('aria-pressed', String(state.sides.length === 2));
@@ -641,10 +673,11 @@
   }
   function dragDivider(ev) {
     ev.preventDefault();
-    const rect = map.getContainer().getBoundingClientRect();
+    const rect = map.getContainer().getBoundingClientRect(), stack = stacked();
     const move = (e) => {
-      const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-      state.split = Math.max(0.04, Math.min(0.96, x / rect.width));
+      const p = e.touches ? e.touches[0] : e;
+      const f = stack ? (p.clientY - rect.top) / rect.height : (p.clientX - rect.left) / rect.width;
+      state.split = Math.max(0.04, Math.min(0.96, f));
       clipSides();
     };
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
@@ -846,6 +879,7 @@
   $('#play').addEventListener('click', togglePlay);
   $('#compare').addEventListener('click', toggleCompare);
   divider.addEventListener('pointerdown', dragDivider);
+  flip.addEventListener('click', flipSplit);
   $('#tags').addEventListener('click', (ev) => {
     const t = ev.target.closest('.tag');
     if (!t) return;
@@ -896,6 +930,7 @@
     else if (ev.key === 'ArrowRight') { stopPlay(); step(1); }
     else if (ev.key === ' ') { ev.preventDefault(); togglePlay(); }
     else if (ev.key === 'c') toggleCompare();
+    else if (ev.key === 'v' && state.sides.length === 2) flipSplit();
     else if (ev.key === '/') { ev.preventDefault(); input.focus(); }
   });
 
@@ -935,6 +970,7 @@
     if (h.years.length) { state.sides = h.years.map((y) => ({ year: y, view: null })); state.wantRead = h.years[0]; }
     for (const s of state.sides) if (S[s.year].stream) state.contextYear = s.year;
     $('#compare').classList.toggle('on', state.sides.length === 2);
+    if (state.sides.length === 2) state.split = middleSplit();
     fillPlaces();
     paintHd();
     tiles.watch(paintMeter);
@@ -963,6 +999,6 @@
     if (h.lat == null && h.q) { input.value = h.q; form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit')); }
   }
 
-  DRAPP.app = { state, recs, views, map: () => map, how, over, share, readPlan, sideStatus, pick, step, toggleCompare, photo, yearsHere, layerSpecs };
+  DRAPP.app = { state, recs, views, map: () => map, how, over, share, readPlan, sideStatus, pick, step, toggleCompare, flipSplit, stacked, photo, yearsHere, layerSpecs };
   init();
 })();
