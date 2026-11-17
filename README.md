@@ -81,8 +81,8 @@ Aerial photographs and tile index: [DRCOG Regional Data Catalog](https://data.dr
 Sanborn for DRCOG. Other years: [Arapahoe County](https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer),
 [Boulder County](https://maps.bouldercounty.org/arcgis/rest/services/RASTER), South Metro
 Fire Rescue, the Colorado Department of Transportation, and the
-[Denver Public Library](https://history.denverlibrary.org/maps/time-travelers/) (the 1933
-aerial survey). Ground outside the region: Esri World Imagery (Esri, Maxar, Earthstar
+[City and County of Denver](https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver)
+(the 1933 King aerial survey, which it georeferenced). Ground outside the region: Esri World Imagery (Esri, Maxar, Earthstar
 Geographics). Addresses: U.S. Census Bureau geocoder and [Nominatim](https://nominatim.org),
 © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
 Libraries: [Leaflet](https://leafletjs.com), [proj4js](https://github.com/proj4js/proj4js),
