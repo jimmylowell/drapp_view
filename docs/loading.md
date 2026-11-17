@@ -49,7 +49,7 @@ Capitol in headless Chrome, 390 px, device scale 2):
 | 2000, 1998 | no | Arapahoe County; 2000 also Boulder County |
 | 1990s to 1953 | no | the South Metro fire district (Centennial to Parker); 1953 also Englewood and Littleton |
 | 1977, 1948 | no | Boulder County; Boulder |
-| 1933 | yes, 1 ft, Denver Public Library | central Denver |
+| 1933 | yes, 1 ft, City and County of Denver | central Denver |
 | 1930 | no | downtown Golden |
 
 So outside Arapahoe County, the south suburbs and Boulder, a person in Denver gets 2004,
