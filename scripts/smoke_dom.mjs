@@ -78,7 +78,7 @@ check(!document.querySelector('#divider').hidden && document.querySelector('#tag
 
 /* The timeline shows the years that exist downtown, and no others. */
 const chips = [...document.querySelectorAll('#chips .chip')].map((c) => c.textContent);
-check(chips.join() === '1933,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026', `downtown timeline: ${chips}`);
+check(chips.join() === '1933,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026,Satellite', `downtown timeline, with the satellite last while comparing: ${chips}`);
 check(document.querySelector('.chip[data-year="2014"]').classList.contains('need'), 'an archive year not yet read is marked as needing a load');
 check(document.querySelector('.chip[data-year="2024"]').classList.contains('now'), 'a mosaic year is instant');
 check(A.how(1977, 39.7482, -104.9935) === null && A.how(1933, 39.7482, -104.9935) === 'tiles', '1977 is Boulder County only; 1933 covers downtown');
@@ -135,6 +135,38 @@ A.toggleCompare();
 await sleep(50);
 check(document.querySelector('#flip').hidden, 'the flip button goes with compare');
 check(A.state.sides.length === 1 && A.state.sides[0].year === 2022 && document.querySelector('#divider').hidden, 'leaving compare keeps the active side\'s year');
+const one = [...document.querySelectorAll('#chips .chip')].map((c) => c.textContent);
+check(!one.includes('Satellite'), `the satellite is offered only while comparing: ${one}`);
+
+/* The satellite: one side of Compare, Esri's tiles to level 20, credited,
+   never played or saved, `esri` in the link. */
+const SAT = S.SAT;
+const satSpec = A.layerSpecs(SAT)[0];
+check(satSpec.kind === 'xyz' && satSpec.maxNativeZoom === 20 && /World_Imagery\/MapServer\/tile\/\{z\}\/\{y\}\/\{x\}$/.test(satSpec.service), 'the satellite is Esri World Imagery tiles to level 20');
+check(!S.YEARS.includes(SAT) && A.how(SAT, 39.7482, -104.9935) === 'tiles', 'the satellite is not a year, and is instant downtown');
+A.toggleCompare();
+await sleep(50);
+A.state.active = 1;
+A.pick(SAT);
+await sleep(300);
+check(A.state.sides[1].year === SAT && document.querySelector('#year-now').textContent === 'Satellite', 'the satellite can be picked as a side');
+check(!document.querySelector('#credit').hidden && /Esri/.test(document.querySelector('#credit').textContent), 'Esri\'s credit shows while the satellite is on');
+check(/Esri/.test(document.querySelector('#tag-1 small').textContent) && /DRCOG|Library|archive/.test(document.querySelector('#tag-0 small').textContent + ' '), `each tag says whose picture: "${document.querySelector('#tag-0 small').textContent}" / "${document.querySelector('#tag-1 small').textContent}"`);
+check(/^Esri World Imagery/.test(document.querySelector('#src').textContent), `the line under the year names Esri: ${document.querySelector('#src').textContent}`);
+await sleep(400);
+check(/y=\d{4}-esri/.test(window.location.hash), `the link says esri: ${window.location.hash}`);
+A.toggleCompare();
+await sleep(50);
+check(A.state.sides.length === 1 && A.state.sides[0].year !== SAT && document.querySelector('#credit').hidden, 'leaving compare from the satellite side keeps the year, and the credit goes');
+window.location.hash = '#ll=39.739250,-104.984850&z=21&y=2024-esri';
+await sleep(300);
+check(A.state.sides.length === 2 && A.state.sides[0].year === 2024 && A.state.sides[1].year === SAT && M.getZoom() === 21, 'a show-off link opens 2024 against the satellite at zoom 21');
+check(Math.abs(A.state.split - 0.5) < 0.11, `the divider starts near halfway: ${A.state.split}`);
+A.toggleCompare();
+await sleep(50);
+window.location.hash = '#ll=39.739250,-104.984850&z=19&y=esri';
+await sleep(300);
+check(A.state.sides.every((s) => s.year !== SAT), 'the satellite alone in a link is not a view');
 
 /* The zip writer: a valid end-of-central-directory record and the right CRC. */
 check(window.DRAPP.crc32(new TextEncoder().encode('123456789')) === 0xCBF43926, 'crc32 of "123456789"');

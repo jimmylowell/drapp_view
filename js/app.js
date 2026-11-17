@@ -22,6 +22,7 @@
 (function () {
   const { proj, sources, tileindex, tiffwindow, geocode, cache, warp, providers, estimate, tiles } = DRAPP;
   const S = sources.SOURCES;
+  const SAT = sources.SAT;
   const R = 20037508.342789244;
   const SRC_RES = proj.GRID;
   const AUTO_BYTES = 8e6;          // a picked year reads the view without asking up to this much
@@ -141,7 +142,12 @@
     if (src.archive === 'tif' && proj.inRegion(proj.toStatePlane(lon, lat))) return 'read';
     return null;
   }
-  const yearsHere = () => { const c = map.getCenter(); return sources.YEARS.filter((y) => how(y, c.lat, c.lng)); };
+  /* The years that exist here, and while comparing, the satellite after them. */
+  const yearsHere = (withSat = state.sides.length === 2) => {
+    const c = map.getCenter(), ys = sources.YEARS.filter((y) => how(y, c.lat, c.lng));
+    if (withSat) ys.push(SAT);
+    return ys;
+  };
 
   /* ---------- a year on one side of the map ---------- */
   function rec(year) {
@@ -297,6 +303,7 @@
     /* Ground to steer by under a year that does not fill the view. */
     const needGround = st.some((x) => x.mode !== 'tiles' && x.mode !== 'pending');
     setContext(needGround);
+    satLookup();
     paintStatus();
     paintPrompt();
     paintTimeline();
@@ -514,7 +521,8 @@
       if (y === sel[state.active]) { b.classList.add('on'); b.setAttribute('aria-current', 'true'); }
       else if (side >= 0) b.classList.add('other');
       if (state.read && state.read.ctl && state.read.year === y) b.classList.add('busy');
-      b.title = kinds[n] === 'need' ? `${sources.label(y)}: read from DRCOG's archive for the view on screen`
+      if (y === SAT) b.classList.add('sat');
+      b.title = y === SAT ? 'Today\'s satellite picture (Esri World Imagery), to set against a DRAPP year' : kinds[n] === 'need' ? `${sources.label(y)}: read from DRCOG's archive for the view on screen`
         : kinds[n] === 'off' ? `${sources.label(y)} has nothing here` : sources.label(y);
       chips.appendChild(b);
     });
@@ -545,7 +553,7 @@
      oldest to newest, round and round. */
   function playable() {
     const c = map.getCenter(), vb = viewBox();
-    return yearsHere().filter((y) => how(y, c.lat, c.lng) === 'tiles' || patchUnder(y, vb));
+    return yearsHere(false).filter((y) => how(y, c.lat, c.lng) === 'tiles' || patchUnder(y, vb));
   }
   function stopPlay() { clearInterval(state.playing); state.playing = 0; $('#play').classList.remove('on'); $('#play').setAttribute('aria-pressed', 'false'); }
   function togglePlay() {
@@ -560,9 +568,70 @@
     state.playing = setInterval(tickYear, 1800);
   }
 
+  /* ---------- what the satellite picture is, here ----------
+     Esri keeps a record of every picture in World Imagery, one map layer per
+     zoom band: "15cm Resolution Metadata" (layer 8) is what level 20 draws,
+     "30cm Resolution Metadata" (layer 9) what levels 12-19 draw. One identify
+     at the view's centre gives the satellite (SRC_DESC), its own pixel
+     (SRC_RES, metres), the day (SRC_DATE) and the stated accuracy (SRC_ACC,
+     metres). Remembered per spot and band; asked only while a side is the
+     satellite. */
+  const satMemo = new Map();
+  let satNow = null, satSeq = 0;
+  const satOn = () => state.sides.some((s) => S[s.year].sat);
+  function satLookup() {
+    if (!satOn()) return;
+    const z = Math.min(20, map.getZoom());
+    if (z < 12) { satNow = { coarse: true }; return paintStatus(); }
+    const layer = z >= 20 ? 8 : 9, c = map.getCenter();
+    const key = `${layer}|${c.lat.toFixed(3)},${c.lng.toFixed(3)}`;
+    if (!satMemo.has(key)) {
+      if (satMemo.size > 300) satMemo.clear();
+      const b = map.getBounds(), size = map.getSize();
+      const q = new URLSearchParams({
+        geometry: `${c.lng},${c.lat}`, geometryType: 'esriGeometryPoint', sr: '4326', layers: 'all:' + layer, tolerance: '0',
+        mapExtent: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','), imageDisplay: `${size.x},${size.y},96`,
+        returnGeometry: 'false', f: 'json',
+      });
+      const p = tiles.blob(`${sources.ESRI_IMAGERY}/identify?${q}`, undefined, false)
+        .then((bl) => bl.text()).then((t) => { const r = (JSON.parse(t).results || [])[0]; return r ? r.attributes : null; });
+      p.catch(() => satMemo.delete(key));
+      satMemo.set(key, p);
+    }
+    const seq = ++satSeq;
+    satMemo.get(key).then((a) => { if (seq === satSeq) { satNow = a; paintStatus(); } }, () => { if (seq === satSeq) { satNow = null; paintStatus(); } });
+  }
+  /* Esri's satellite codes, as Vantor names the satellites. */
+  function satName(code) {
+    const lg = /^LG0*(\d+)$/.exec(code || '');
+    if (lg) return 'WorldView Legion ' + lg[1];
+    return { WV01: 'WorldView-1', WV02: 'WorldView-2', WV03: 'WorldView-3', WV04: 'WorldView-4', GE01: 'GeoEye-1' }[code] || code || '';
+  }
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function satWords(short) {
+    const a = satNow;
+    if (!a) return short ? 'Esri · Vantor satellite' : 'Esri World Imagery · Vantor satellite';
+    if (a.coarse) return short ? 'Esri · zoom in for the source' : 'Esri World Imagery · zoom in to see which satellite';
+    const d = /^(\d{4})(\d\d)(\d\d)$/.exec(a.SRC_DATE || '');
+    const date = d ? `${+d[3]} ${MONTHS[+d[2] - 1]} ${d[1]}` : 'date not recorded';
+    const res = +a.SRC_RES > 0 ? `${Math.round(a.SRC_RES * 100)} cm` : 'pixel not recorded';
+    const who = [a.NICE_DESC, satName(a.SRC_DESC)].filter(Boolean).join(' ');
+    return short ? [who, res, date].join(' · ') : ['Esri World Imagery', who + ' satellite', res + ' a pixel', date].join(' · ');
+  }
+
   /* ---------- the words ---------- */
+  /* The second line of a side's tag while comparing: whose picture, its pixel. */
+  function tagLine(i) {
+    const s = state.sides[i], st = lastAssess[i] || {}, src = S[s.year];
+    if (src.sat) return satWords(true);
+    if (st.mode === 'patch') return 'DRCOG archive · ' + resLabel(st.patch.win.res);
+    if (src.stream) return 'DRCOG · 3 in a pixel';
+    const p = st.used && st.used.options.provider;
+    return p ? p.credit : '';
+  }
   function sourceLine(i) {
     const s = state.sides[i], st = lastAssess[i] || {}, src = S[s.year];
+    if (src.sat) return satWords(false);
     if (st.reading && st.mode !== 'tiles') return 'reading from DRCOG\'s archive…';
     if (st.mode === 'patch') return ['DRCOG archive', resLabel(st.patch.win.res) + ' a pixel', st.patch.meta].filter(Boolean).join(' · ');
     if (src.stream) {
@@ -580,11 +649,17 @@
     const i = state.active;
     $('#year-now').textContent = sources.label(state.sides[i].year);
     $('#src').textContent = sourceLine(i);
+    $('#src').title = S[state.sides[i].year].sat && satNow && +satNow.SRC_ACC > 0 ? `Esri's stated accuracy for this picture: ${satNow.SRC_ACC} m` : '';
     document.title = `Denver Aerials — ${sources.label(state.sides[i].year)}`;
     state.sides.forEach((s, n) => {
       const tag = $(`#tag-${n}`);
-      if (tag) { tag.querySelector('b').textContent = sources.label(s.year); tag.classList.toggle('on', n === state.active); }
+      if (tag) {
+        tag.querySelector('b').textContent = sources.label(s.year);
+        tag.querySelector('small').textContent = tagLine(n);
+        tag.classList.toggle('on', n === state.active);
+      }
     });
+    $('#credit').hidden = !satOn();
   }
   function paintMeter() {
     const m = tiles.meter;
@@ -652,7 +727,11 @@
   function toggleCompare() {
     stopPlay();
     if (state.sides.length === 2) {
-      const keep = state.sides[state.active].year;
+      /* The satellite is only ever one side of a comparison: leaving, the
+         year on the other side stays. */
+      let keep = state.sides[state.active].year;
+      if (S[keep].sat) keep = state.sides[1 - state.active].year;
+      if (S[keep].sat) keep = 2024;
       for (const v of views.values()) if (v.side === 1) unmount(v);
       state.sides = [{ year: keep, view: null }];
       state.active = 0;
@@ -771,6 +850,7 @@
   ];
   async function saveOne() {
     const year = state.sides[state.active].year;
+    if (S[year].sat) return toast('The satellite picture is Esri\'s and is not saved here. Tap the other side to save its year.', 6000);
     toast(`Saving ${sources.label(year)}…`, 0);
     try {
       const b = await photo(year);
@@ -782,8 +862,8 @@
   }
   async function saveAll() {
     const c = map.getCenter(), vb = viewBox();
-    const years = yearsHere().filter((y) => how(y, c.lat, c.lng) === 'tiles' || patchUnder(y, vb));
-    const skipped = yearsHere().filter((y) => !years.includes(y)).map((y) => sources.label(y));
+    const years = yearsHere(false).filter((y) => how(y, c.lat, c.lng) === 'tiles' || patchUnder(y, vb));
+    const skipped = yearsHere(false).filter((y) => !years.includes(y)).map((y) => sources.label(y));
     const files = [];
     for (const y of years) {
       toast(`Saving ${sources.label(y)} (${files.length + 1} of ${years.length})…`, 0);
@@ -809,14 +889,15 @@
       const c = map.getCenter(), h = new URLSearchParams();
       h.set('ll', `${c.lat.toFixed(6)},${c.lng.toFixed(6)}`);
       h.set('z', String(map.getZoom()));
-      h.set('y', state.sides.map((s) => s.year).join('-'));
+      h.set('y', state.sides.map((s) => (s.year === SAT ? 'esri' : s.year)).join('-'));
       try { history.replaceState(null, '', '#' + h.toString().replace(/%2C/g, ',')); } catch (e) { /* file:// */ }
     }, 250);
   }
   function readHash() {
     const h = new URLSearchParams(location.hash.slice(1));
     const ll = (h.get('ll') || '').split(',').map(Number);
-    const ys = (h.get('y') || '').split('-').map(Number).filter((y) => sources.YEARS.includes(y)).slice(0, 2);
+    let ys = (h.get('y') || '').split('-').map((t) => (t === 'esri' ? SAT : Number(t))).filter((y) => y === SAT || sources.YEARS.includes(y)).slice(0, 2);
+    if (ys.length === 1 && ys[0] === SAT) ys = [];        // the satellite is only one side of a comparison
     const out = { years: ys, q: h.get('q') || '' };
     if (ll.length === 2 && ll.every(Number.isFinite)) { out.lat = ll[0]; out.lon = ll[1]; out.z = Math.max(9, Math.min(22, Math.round(+h.get('z')) || 19)); }
     return out;
@@ -907,7 +988,7 @@
     about.showModal();
   });
   $('#about-close').addEventListener('click', () => about.close());
-  about.addEventListener('click', (ev) => { if (ev.target === about) about.close(); });
+  about.addEventListener('click', (ev) => { if (ev.target === about || ev.target.closest('a[data-close]')) about.close(); });
   function paintHd() {
     const b = $('#hd');
     b.hidden = dpr() < 1.5;
@@ -990,8 +1071,10 @@
         state.sides = n.years.map((y) => ({ year: y, view: null }));
         state.active = 0; state.wantRead = n.years[0]; chipSig = '';
         $('#compare').classList.toggle('on', state.sides.length === 2);
+        $('#compare').setAttribute('aria-pressed', String(state.sides.length === 2));
       }
       if (n.lat != null) map.setView([n.lat, n.lon], n.z, { animate: false });
+      if (state.sides.length === 2) state.split = middleSplit();
       showSides();
     });
     showSides();

@@ -33,7 +33,19 @@ panning/zooming should not kill bandwidth immediately."
   on the left, or stacked with the older year on top. A screen taller than it is wide
   (a phone held upright) opens stacked, so each half keeps the full width; the round
   button on the divider turns it the other way for the rest of the visit. The year tag
-  on each half says which half the timeline is driving.
+  on each half says which half the timeline is driving, and under the year whose picture
+  it is.
+- **Satellite** is the last chip while comparing, and only then: Esri World Imagery as one
+  side, so DRAPP's detail can be set against a satellite base map. It is never a year on
+  the timeline, never played, never saved (the imagery is Esri's). Its tag and the line
+  under the year give the satellite, its own pixel and the day, read from Esri's records
+  at the view's centre: the World Imagery MapServer `identify` on the "15cm Resolution
+  Metadata" layer (what level 20 draws) or "30cm Resolution Metadata" (levels 12–19),
+  fields `NICE_DESC`, `SRC_DESC`, `SRC_RES`, `SRC_DATE`, with `SRC_ACC` as a tooltip.
+  Esri's credit line shows under the timeline while it is on. Its tiles stop at level 20;
+  level 21 is Esri's "Map data not yet available" tile. In a link it is `esri`
+  (`y=2024-esri`). Google's imagery cannot be a side: its terms allow it only in its own
+  embedded map.
 - Arrow keys step years, space plays, `c` compares, `v` turns the split, `/` goes to
   search.
 

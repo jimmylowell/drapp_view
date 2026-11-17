@@ -22,7 +22,9 @@ What the page is for and how it behaves, in full: [docs/design.md](docs/design.m
   for this view.
 - **Compare** splits the map with a draggable divider: side by side with the older year
   on the left, or stacked with the older year on top. A phone held upright opens
-  stacked; the round button on the divider turns the split.
+  stacked; the round button on the divider turns the split. While comparing, the last
+  chip, **Satellite**, puts Esri World Imagery on one side, to set DRAPP's 3 inches against
+  a satellite base map; its tag gives the satellite, pixel and day from Esri's own records.
 - Arrow keys step years, space plays, `c` compares, `v` turns the split, `/` goes to
   search.
 
@@ -82,8 +84,8 @@ Sanborn for DRCOG. Other years: [Arapahoe County](https://gis.arapahoegov.com/ar
 [Boulder County](https://maps.bouldercounty.org/arcgis/rest/services/RASTER), South Metro
 Fire Rescue, the Colorado Department of Transportation, and the
 [Denver Public Library](https://history.denverlibrary.org/maps/time-travelers/) (the 1933
-aerial survey). Ground outside the region: Esri World Imagery (Esri, Maxar, Earthstar
-Geographics). Addresses: U.S. Census Bureau geocoder and [Nominatim](https://nominatim.org),
+aerial survey). Ground outside the region, and the Satellite side of Compare: Esri World
+Imagery (Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community). Addresses: U.S. Census Bureau geocoder and [Nominatim](https://nominatim.org),
 © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
 Libraries: [Leaflet](https://leafletjs.com), [proj4js](https://github.com/proj4js/proj4js),
 [geotiff.js](https://github.com/geotiffjs/geotiff.js). Site code: MIT.

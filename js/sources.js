@@ -133,6 +133,27 @@
     1930: { providers: [cdot('Golden_1930_Aerial', [39.736, -105.2129, 39.747, -105.1975], 'downtown Golden')] },
   };
   const YEARS = Object.keys(SOURCES).map(Number).sort((a, b) => a - b);
+
+  /* Today's satellite picture, Esri World Imagery, as one side of Compare
+     only: never a year on the timeline, never played, never saved. Over the
+     Denver region its tiles go to level 20 (15 cm samples of a 31-50 cm
+     satellite picture); level 21 is Esri's "Map data not yet available" tile
+     (checked 2026-11-17 at the Capitol, Aurora, Boulder, Littleton, Golden and
+     DIA with the service's tilemap). Its key sorts after every year; the link
+     calls it `esri`. What it is at a spot is read from Esri's own records
+     (js/app.js, satMeta). */
+  const SAT = 9000;
+  const ESRI_IMAGERY = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer';
+  const ESRI_CREDIT = 'Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community';   // the service's own copyrightText
+  SOURCES[SAT] = {
+    label: 'Satellite', sat: true,
+    providers: [{
+      kind: 'xyz', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      maxZoom: 20, cover: [-85, -180, 85, 180], res: 12,
+      src: 'satellite', credit: 'Esri World Imagery', area: 'everywhere', home: ESRI_IMAGERY,
+    }],
+  };
+
   const isDrapp = (year) => 'archive' in SOURCES[year];
   const label = (year) => SOURCES[year].label || String(year);
 
@@ -140,6 +161,6 @@
   const ARCHIVE_LABEL = 'DRCOG archive tile on S3, read in the browser';
 
   window.DRAPP = Object.assign(window.DRAPP || {}, {
-    sources: { SOURCES, YEARS, INDEX, STREAM_LABEL, ARCHIVE_LABEL, isDrapp, label },
+    sources: { SOURCES, YEARS, SAT, ESRI_IMAGERY, ESRI_CREDIT, INDEX, STREAM_LABEL, ARCHIVE_LABEL, isDrapp, label },
   });
 })();
