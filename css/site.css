@@ -81,7 +81,12 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .flip:hover { background: rgba(40, 48, 56, 0.95); }
 #tags { position: fixed; z-index: 890; top: calc(70px + var(--safe-t)); left: 12px; right: 12px; display: flex; justify-content: space-between; pointer-events: none; }
 .tag { pointer-events: auto; padding: 5px 13px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line); box-shadow: var(--shadow); backdrop-filter: blur(10px); color: var(--dim); }
+.tag { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; text-align: left; }
 .tag b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.tag small { font-size: 11px; max-width: 46vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tag small:empty { display: none; }
+.credit { margin: 0; padding: 2px 10px; border-radius: 10px; background: rgba(11, 15, 18, 0.7); color: var(--dim); font-size: 11px; text-align: center; }
+.credit a { color: inherit; }
 .tag.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 /* Stacked: the older year's tag just above the line, the newer just below. */
 body.stacked #tags { right: auto; flex-direction: column; align-items: flex-start; gap: 22px; transform: translateY(-50%); }

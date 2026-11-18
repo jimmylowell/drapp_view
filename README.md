@@ -22,7 +22,9 @@ What the page is for and how it behaves, in full: [docs/design.md](docs/design.m
   for this view.
 - **Compare** splits the map with a draggable divider: side by side with the older year
   on the left, or stacked with the older year on top. A phone held upright opens
-  stacked; the round button on the divider turns the split.
+  stacked; the round button on the divider turns the split. While comparing, the last
+  chip, **Satellite**, puts Esri World Imagery on one side, to set DRAPP's 3 inches against
+  a satellite base map; its tag gives the satellite, pixel and day from Esri's own records.
 - Arrow keys step years, space plays, `c` compares, `v` turns the split, `/` goes to
   search.
 

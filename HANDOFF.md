@@ -8,6 +8,7 @@
 - An archive read is as much of the middle of the view as 8 MB buys, because the files are uncompressed and a neighbourhood at screen detail is tens of megabytes. Picking a year okays one read; a pan never reads.
 - The tile index is baked into `data/index/` (run `node scripts/bake_index.mjs` to refresh). DRCOG's live query hung for an hour on 2026-11-12 and would have stopped every older year.
 - Streamed years are tiles, never a window (Jimmy, 2026-11-06). Code is MIT (Jimmy, 2026-11-06).
+- Compare can set a DRAPP year against today's satellite picture, Esri World Imagery, offered as the last chip only while comparing (Jimmy, 2026-11-17: "a way to show off the high detail of Denver aerials versus a base map layer"). Esri only, never Google, whose terms keep its imagery inside its own map. Never played or saved, since the imagery is Esri's. The labels come from Esri's own source records at the view's centre, as [docs/design.md](docs/design.md) says.
 
 **Next.** Jimmy's look at the rebuilt page. A merge goes live only by `wrangler pages deploy` of `index.html`, `favicon.svg`, `css/`, `js/` and `data/` to project `drapp`. Pages serves the scripts with a four-hour cache, so `index.html` links each one with `?v=` and a date: change that date in the same commit as any script or stylesheet change, or a returning browser runs the new page with old scripts.
 
