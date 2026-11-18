@@ -135,7 +135,7 @@ public API; if one dies its years drop off the timeline and the rest still draw.
 
 ## Denver itself between 1933 and 2000
 
-Central Denver has one year before DRAPP that a browser can draw: 1933, the King survey. Every pre-2000 layer on the timeline belongs to a neighbour, and
+Central Denver has one year before DRAPP that a browser can draw: 1933, Jasper King's survey, [georeferenced by the City and County of Denver](https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver) (the tile service credits the City of Denver Open Data Catalog). Every pre-2000 layer on the timeline belongs to a neighbour, and
 each one answers central Denver with a 404 or a blank tile (checked 2026-11-13 at Union
 Station, City Park, Washington Park and Stapleton): South Metro Fire Rescue's decade
 caches stop at the district, Arapahoe County's 1998 and 2000 layers draw only inside the

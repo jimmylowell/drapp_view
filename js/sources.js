@@ -51,16 +51,19 @@
     src, credit: 'Boulder County', area: 'Boulder County', home: BOULDER + name + '/MapServer',
   });
 
-  /* The 1933 King aerial survey of Denver, georeferenced by the Denver Public
-     Library for its Time Traveler's Map and hosted as Web Mercator tiles on
+  /* Jasper King's 1933 aerial survey of Denver, georeferenced by the City and
+     County of Denver (the Denver Public Library's page for it says so:
+     https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver).
+     The tile service's own credits read "City of Denver Open Data Catalog".
+     The library shows it on its Time Traveler's Map. Web Mercator tiles on
      ArcGIS Online, 20 levels deep (about 1 ft a pixel at the bottom). Covers
      central Denver only. */
   const KING_1933 = {
     kind: 'xyz',
     url: 'https://tiles.arcgis.com/tiles/44C95LOqZjbh8Row/arcgis/rest/services/Denver_1933_Aerial/MapServer/tile/{z}/{y}/{x}',
     maxZoom: 19, cover: [39.6664, -105.0542, 39.7957, -104.8849], res: 12,
-    src: 'King aerial survey, georeferenced by the library', credit: 'Denver Public Library', area: 'central Denver',
-    home: 'https://history.denverlibrary.org/maps/time-travelers/',
+    src: 'King aerial survey, georeferenced by the city', credit: 'City and County of Denver', area: 'central Denver',
+    home: 'https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver',
   };
 
   /* Web Mercator tile caches on ArcGIS Online. CDOT's account holds three
