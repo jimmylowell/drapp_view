@@ -42,7 +42,7 @@ panning/zooming should not kill bandwidth immediately."
   side by side at the top corners, stacked at the far end of each half (the older at the
   top, the newer just above the timeline). The year tag
   on each half says which half the timeline is driving, and under the year whose picture
-  it is.
+  it is; a tap on a tag drives that half and opens the year list for it at once.
 - **Satellite** is in the year list while comparing, and only then: Esri World Imagery as one
   side, so DRAPP's detail can be set against a satellite base map. It is never a year on
   the timeline, never played, never saved (the imagery is Esri's). Its tag and the line

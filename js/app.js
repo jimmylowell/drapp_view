@@ -580,7 +580,7 @@
     } else if (ev.key === 'Escape') { ev.preventDefault(); showYears(false); yearPick.focus(); }
   });
   document.addEventListener('pointerdown', (ev) => {
-    if (!list.hidden && !ev.target.closest('#years, #year-pick')) showYears(false);
+    if (!list.hidden && !ev.target.closest('#years, #year-pick, .tag')) showYears(false);
   });
 
   function pick(year, quiet) {
@@ -1019,9 +1019,14 @@
   $('#tags').addEventListener('click', (ev) => {
     const t = ev.target.closest('.tag');
     if (!t) return;
-    state.active = +t.dataset.side;
+    /* A tag makes its side the one the timeline drives and opens the year list
+       for it at once; the same tag again closes the list. */
+    const side = +t.dataset.side;
+    if (!list.hidden && state.active === side) { showYears(false); return; }
+    state.active = side;
     chipSig = '';
     assess(); paintAll();
+    showYears(true);
   });
   $('#save').addEventListener('click', () => { $('#save-menu').hidden = !$('#save-menu').hidden; });
   $('#save-one').addEventListener('click', () => { $('#save-menu').hidden = true; saveOne(); });

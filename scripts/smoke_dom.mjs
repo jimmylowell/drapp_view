@@ -75,6 +75,12 @@ check(!!S.SOURCES[2026].stream && S.SOURCES[2026].interim, '2026 is DRCOG\'s int
 check(Math.abs(M.getCenter().lat - 39.7482) < 1e-6 && M.getZoom() === 19, 'the hash set the view');
 check(A.state.sides.length === 2 && A.state.sides[0].year === 2014 && A.state.sides[1].year === 2024, 'two years in the hash open compare, older on the left');
 check(!document.querySelector('#divider').hidden && document.querySelector('#tag-0 b').textContent === '2014', 'the divider and its year tags are up');
+document.querySelector('#tag-1').click();
+check(A.state.active === 1 && !document.querySelector('#years').hidden && document.querySelector('.opt.on b').textContent === '2024', 'a year tag drives its side and opens the year list for it');
+document.querySelector('#tag-1').click();
+check(document.querySelector('#years').hidden, 'the same tag again closes the list');
+document.querySelector('#tag-0').click(); document.querySelector('#tag-0').click();
+check(A.state.active === 0 && document.querySelector('#years').hidden, 'back on the left side, list closed');
 
 /* The timeline shows the years that exist downtown, and no others. */
 const chips = [...document.querySelectorAll('#years .opt b')].map((c) => c.textContent).reverse();
