@@ -25,17 +25,22 @@ panning/zooming should not kill bandwidth immediately."
 - **Top left:** one search box (address, place, or `lat, lon`), a locate button, and a
   short list of places to start when the box is empty.
 - **Top right:** Compare, Save, Link, About.
-- **Bottom:** the timeline. The year on show in large type, where it comes from and how
-  sharp it is, what the visit has downloaded, and one chip per year **that exists where
-  the map is centred**. A solid chip is instant. A dashed chip is a year that has to be
-  read out of DRCOG's archive for this view.
+- **Bottom:** the timeline, one row: back, play, forward, the year on show in large type
+  with where it comes from and how sharp it is, and what the visit has downloaded. The
+  year is a button that opens a list of the years **that exist where the map is
+  centred**, newest first, each with a small note of who serves it there (USGS, DRCOG,
+  DRCOG archive, a county). A year in dim type has to be read out of DRCOG's archive for
+  this view. (Was a row of chips, one per year; a list is shorter on a phone and has
+  room for the source.)
 - **Compare** splits the map with a draggable divider: side by side with the older year
   on the left, or stacked with the older year on top. A screen taller than it is wide
   (a phone held upright) opens stacked, so each half keeps the full width; the round
-  button on the divider turns it the other way for the rest of the visit. The year tag
+  button by the divider's handle turns it the other way for the rest of the visit. The
+  handle and that button sit at the end of the line, clear of the picture: at the top
+  side by side, at the right edge stacked, where the year tags are not. The year tag
   on each half says which half the timeline is driving, and under the year whose picture
   it is.
-- **Satellite** is the last chip while comparing, and only then: Esri World Imagery as one
+- **Satellite** is in the year list while comparing, and only then: Esri World Imagery as one
   side, so DRAPP's detail can be set against a satellite base map. It is never a year on
   the timeline, never played, never saved (the imagery is Esri's). Its tag and the line
   under the year give the satellite, its own pixel and the day, read from Esri's records
