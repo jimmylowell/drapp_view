@@ -75,14 +75,14 @@
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path class="p" d="M7 4.5v15l12-7.5z" fill="currentColor"/><path class="s" d="M6 5h4.5v14H6zM13.5 5H18v14h-4.5z" fill="currentColor"/></svg>
       </button>
       <button type="button" id="next" class="icon" aria-label="Later year" title="Later year (→)">›</button>
-      <div class="what">
-        <b id="year-now"></b>
+      <button type="button" id="year-pick" class="what" aria-haspopup="listbox" aria-expanded="false" aria-controls="years" title="Pick a year">
+        <span class="yr"><b id="year-now"></b><svg class="caret" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         <span id="src"></span>
-      </div>
+      </button>
       <button type="button" id="hd" aria-pressed="true" hidden title="Full detail: sharpen to this screen's own pixels when the map rests zoomed in">HD</button>
       <span id="meter" title="Downloaded this visit">↓ 0 KB</span>
     </div>
-    <div id="chips" class="chips" role="group" aria-label="Year"></div>
+    <div id="years" class="years" role="listbox" aria-label="Years here" hidden></div>
   </div>
   <p id="credit" class="credit" hidden>Satellite: Powered by <a href="https://www.esri.com" rel="noopener">Esri</a> · Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community</p>
 </footer>

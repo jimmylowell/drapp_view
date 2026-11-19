@@ -492,46 +492,78 @@
     else { state.read = null; state.wantRead = state.sides[state.active].year; assess(); }
   });
 
-  /* ---------- the timeline ---------- */
-  const chips = $('#chips');
+  /* ---------- the timeline: the year, and a list of the years here ----------
+     The year at the bottom is a button; it drops a list up, newest first,
+     each year with a small note of where its picture comes from at this spot. */
+  const yearPick = $('#year-pick'), list = $('#years');
   let chipSig = '';
+  /* Who serves a year at a spot, in a few words: the provider that would draw
+     it (the first whose box holds the spot), or DRCOG's mosaic or archive. */
+  function sourceNote(y, h, lat, lon) {
+    const src = S[y];
+    if (src.sat) return 'Esri World Imagery';
+    if (src.stream) return src.interim ? 'DRCOG, interim mosaic' : 'DRCOG';
+    if (h === 'read') return 'DRCOG archive';
+    const p = (src.providers || []).find((q) => providerHere(q, lat, lon));
+    return p ? p.credit : '';
+  }
   function paintTimeline() {
     const years = yearsHere();
     const sel = state.sides.map((s) => s.year);
     for (const y of sel) if (!years.includes(y)) years.push(y);
-    years.sort((a, b) => a - b);
+    years.sort((a, b) => b - a);
     const c = map.getCenter(), vb = viewBox();
-    const kinds = years.map((y) => {
-      const h = how(y, c.lat, c.lng);
+    const hows = years.map((y) => how(y, c.lat, c.lng));
+    const kinds = years.map((y, n) => {
+      const h = hows[n];
       if (!h) return 'off';
       if (h === 'read') return patchUnder(y, vb) ? 'got' : 'need';
       return 'now';
     });
-    const sig = years.map(sources.label).join() + '|' + kinds.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
+    const notes = years.map((y, n) => sourceNote(y, hows[n], c.lat, c.lng));
+    const sig = years.map(sources.label).join() + '|' + kinds.join() + '|' + notes.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
     if (sig === chipSig) return;
     chipSig = sig;
-    chips.innerHTML = '';
-    let prev = null;
+    list.innerHTML = '';
     years.forEach((y, n) => {
-      if (prev != null && y - prev > 4) chips.appendChild(el('i', 'gap'));
-      prev = y;
-      const b = el('button', 'chip ' + kinds[n], sources.label(y));
-      b.type = 'button'; b.dataset.year = y;
+      const b = el('button', 'opt ' + kinds[n]);
+      b.type = 'button'; b.dataset.year = y; b.setAttribute('role', 'option');
+      b.append(el('b', '', sources.label(y)), el('small', '', notes[n]));
       const side = sel.indexOf(y);
-      if (y === sel[state.active]) { b.classList.add('on'); b.setAttribute('aria-current', 'true'); }
+      b.setAttribute('aria-selected', String(y === sel[state.active]));
+      if (y === sel[state.active]) b.classList.add('on');
       else if (side >= 0) b.classList.add('other');
       if (state.read && state.read.ctl && state.read.year === y) b.classList.add('busy');
       if (y === SAT) b.classList.add('sat');
       b.title = y === SAT ? 'Today\'s satellite picture (Esri World Imagery), to set against a DRAPP year' : kinds[n] === 'need' ? `${sources.label(y)}: read from DRCOG's archive for the view on screen`
         : kinds[n] === 'off' ? `${sources.label(y)} has nothing here` : sources.label(y);
-      chips.appendChild(b);
+      list.appendChild(b);
     });
-    const on = $('.chip.on', chips);
-    if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
-  chips.addEventListener('click', (ev) => {
-    const b = ev.target.closest('.chip');
-    if (b) { stopPlay(); pick(+b.dataset.year); }
+  function showYears(open) {
+    list.hidden = !open;
+    yearPick.setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    chipSig = ''; paintTimeline();
+    const on = $('.opt.on', list) || $('.opt', list);
+    if (on) { if (on.scrollIntoView) on.scrollIntoView({ block: 'center' }); on.focus({ preventScroll: true }); }
+  }
+  yearPick.addEventListener('click', () => showYears(list.hidden));
+  list.addEventListener('click', (ev) => {
+    const b = ev.target.closest('.opt');
+    if (!b) return;
+    stopPlay(); pick(+b.dataset.year); showYears(false); yearPick.focus();
+  });
+  list.addEventListener('keydown', (ev) => {
+    const opts = [...list.querySelectorAll('.opt')], at = opts.indexOf(document.activeElement);
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      const n = Math.max(0, Math.min(opts.length - 1, at + (ev.key === 'ArrowDown' ? 1 : -1)));
+      if (opts[n]) opts[n].focus();
+    } else if (ev.key === 'Escape') { ev.preventDefault(); showYears(false); yearPick.focus(); }
+  });
+  document.addEventListener('pointerdown', (ev) => {
+    if (!list.hidden && !ev.target.closest('#years, #year-pick')) showYears(false);
   });
 
   function pick(year, quiet) {
@@ -702,9 +734,13 @@
     const at = Math.round((stack ? size.y : size.x) * state.split);
     divider.style.left = stack ? '' : at + 'px';
     divider.style.top = stack ? at + 'px' : '';
-    /* The flip button sits on the divider line, just past its handle. */
-    flip.style.left = (stack ? size.x / 2 + 50 : at) + 'px';
-    flip.style.top = (stack ? at : size.y / 2 + 50) + 'px';
+    /* The handle sits at the end of the line, clear of the picture: at the top
+       side by side, at the right edge stacked. The flip button is just past it. */
+    if (comparing) {
+      const h = $('span', divider).getBoundingClientRect(), m = map.getContainer().getBoundingClientRect();
+      flip.style.left = (stack ? h.left - m.left - 8 - 17 : at) + 'px';
+      flip.style.top = (stack ? at : h.bottom - m.top + 8 + 17) + 'px';
+    }
     flip.textContent = stack ? '⇄' : '⇅';
     flip.title = stack ? 'Show the two years side by side' : 'Show the two years one above the other';
     flip.setAttribute('aria-label', flip.title);
@@ -1006,7 +1042,7 @@
     $('#usage').textContent = 'Kept imagery cleared from this browser.';
   });
   document.addEventListener('keydown', (ev) => {
-    if (ev.target.closest('input, textarea, dialog')) return;
+    if (ev.target.closest('input, textarea, dialog, #years')) return;
     if (ev.key === 'ArrowLeft') { stopPlay(); step(-1); }
     else if (ev.key === 'ArrowRight') { stopPlay(); step(1); }
     else if (ev.key === ' ') { ev.preventDefault(); togglePlay(); }

@@ -77,10 +77,18 @@ check(A.state.sides.length === 2 && A.state.sides[0].year === 2014 && A.state.si
 check(!document.querySelector('#divider').hidden && document.querySelector('#tag-0 b').textContent === '2014', 'the divider and its year tags are up');
 
 /* The timeline shows the years that exist downtown, and no others. */
-const chips = [...document.querySelectorAll('#chips .chip')].map((c) => c.textContent);
+const chips = [...document.querySelectorAll('#years .opt b')].map((c) => c.textContent).reverse();
 check(chips.join() === '1933,1953,1963,1964,1969,1970,1971,1972,1975,1978,1980,1983,1984,1988,1991,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026,Satellite', `downtown timeline, with the satellite last while comparing: ${chips}`);
-check(document.querySelector('.chip[data-year="2014"]').classList.contains('need'), 'an archive year not yet read is marked as needing a load');
-check(document.querySelector('.chip[data-year="2024"]').classList.contains('now'), 'a mosaic year is instant');
+check(document.querySelector('.opt[data-year="2014"]').classList.contains('need'), 'an archive year not yet read is marked as needing a load');
+check(document.querySelector('.opt[data-year="2024"]').classList.contains('now'), 'a mosaic year is instant');
+check(document.querySelector('#years').hidden && document.querySelector('#years .opt b').textContent === 'Satellite', 'the year list waits closed, newest first');
+check(document.querySelector('.opt[data-year="1971"] small').textContent === 'USGS' && document.querySelector('.opt[data-year="2024"] small').textContent === 'DRCOG'
+  && document.querySelector('.opt[data-year="2014"] small').textContent === 'DRCOG archive', 'each year in the list says where it comes from here');
+document.querySelector('#year-pick').click();
+check(!document.querySelector('#years').hidden && document.querySelector('#year-pick').getAttribute('aria-expanded') === 'true', 'the year opens the list');
+document.querySelector('.opt[data-year="2022"]').click();
+check(document.querySelector('#years').hidden && A.state.sides[A.state.active].year === 2022, 'picking from the list sets the year and closes it');
+A.pick(2014, true);
 check(A.how(1977, 39.7482, -104.9935) === null && A.how(1933, 39.7482, -104.9935) === 'tiles', '1977 is Boulder County only; 1933 covers downtown');
 check(A.how(2014, 39.7482, -104.9935) === 'read' && A.how(2024, 39.7482, -104.9935) === 'tiles', '2014 downtown is a read, 2024 is tiles');
 check(A.how(2024, 38.83, -104.82) === null, 'Colorado Springs is outside the region');
@@ -136,7 +144,7 @@ A.toggleCompare();
 await sleep(50);
 check(document.querySelector('#flip').hidden, 'the flip button goes with compare');
 check(A.state.sides.length === 1 && A.state.sides[0].year === 2022 && document.querySelector('#divider').hidden, 'leaving compare keeps the active side\'s year');
-const one = [...document.querySelectorAll('#chips .chip')].map((c) => c.textContent);
+const one = [...document.querySelectorAll('#years .opt b')].map((c) => c.textContent);
 check(!one.includes('Satellite'), `the satellite is offered only while comparing: ${one}`);
 
 /* The satellite: one side of Compare, Esri's tiles to level 20, credited,
