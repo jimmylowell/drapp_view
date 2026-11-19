@@ -24,7 +24,9 @@ What the page is for and how it behaves, in full: [docs/design.md](docs/design.m
   on the left, or stacked with the older year on top. A phone held upright opens
   stacked; the round button on the divider turns the split. While comparing, the last
   chip, **Satellite**, puts Esri World Imagery on one side, to set DRAPP's 3 inches against
-  a satellite base map; its tag gives the satellite, pixel and day from Esri's own records.
+  a satellite base map; its tag gives the satellite, pixel and day from Esri's own records,
+  and Esri's credit runs along the foot of the map while it is on show
+  (`y=2024-esri` in the link opens it).
 - Arrow keys step years, space plays, `c` compares, `v` turns the split, `/` goes to
   search.
 
@@ -84,8 +86,9 @@ Sanborn for DRCOG. Other years: [Arapahoe County](https://gis.arapahoegov.com/ar
 [Boulder County](https://maps.bouldercounty.org/arcgis/rest/services/RASTER), South Metro
 Fire Rescue, the Colorado Department of Transportation, and the
 [City and County of Denver](https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver)
-(the 1933 King aerial survey, which it georeferenced). Ground outside the region: Esri World Imagery (Esri, Maxar, Earthstar
-Geographics). Addresses: U.S. Census Bureau geocoder and [Nominatim](https://nominatim.org),
+(the 1933 King aerial survey, which it georeferenced). Ground outside the region, and the
+Satellite side of Compare: [Esri World Imagery](https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer)
+(Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community). Addresses: U.S. Census Bureau geocoder and [Nominatim](https://nominatim.org),
 © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
 Libraries: [Leaflet](https://leafletjs.com), [proj4js](https://github.com/proj4js/proj4js),
 [geotiff.js](https://github.com/geotiffjs/geotiff.js). Site code: MIT.
