@@ -507,7 +507,7 @@
       if (h === 'read') return patchUnder(y, vb) ? 'got' : 'need';
       return 'now';
     });
-    const sig = years.join() + '|' + kinds.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
+    const sig = years.map(sources.label).join() + '|' + kinds.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
     if (sig === chipSig) return;
     chipSig = sig;
     chips.innerHTML = '';
@@ -1032,6 +1032,7 @@
     const h = readHash();
     map = L.map('map', { zoomControl: false, attributionControl: false, minZoom: 9, maxZoom: 22, zoomSnap: 1, wheelPxPerZoomLevel: 90, maxBounds: regionLL.pad(1.5), maxBoundsViscosity: 0.6 })
       .setView([h.lat ?? HOME.lat, h.lon ?? HOME.lon], h.z ?? HOME.z);
+    sources.where = () => { const c = map.getCenter(); return [c.lat, c.lng]; };   // a decade key reads as its year where a USGS year covers the spot
     if (!L.Browser.mobile) L.control.zoom({ position: 'bottomright' }).addTo(map);
     map.createPane('base').style.zIndex = 200;
     map.createPane('context').style.zIndex = 300;

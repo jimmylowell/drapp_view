@@ -67,7 +67,7 @@ if (!window.DRAPP || !window.DRAPP.app) { console.error('SMOKE FAIL: the page di
 const { app: A, sources: S, proj: P, estimate: E, tiles: T, providers: PR } = window.DRAPP;
 const M = A.map();
 check(!!document.querySelector('#map.leaflet-container'), 'Leaflet map initialised');
-check(S.YEARS.length === 24 && S.YEARS[0] === 1930 && S.YEARS[23] === 2026, `24 years, 1930 to 2026: ${S.YEARS}`);
+check(S.YEARS.length === 37 && S.YEARS[0] === 1930 && S.YEARS[36] === 2026, `37 years, 1930 to 2026: ${S.YEARS}`);
 check(S.isDrapp(2024) && S.isDrapp(2026) && !S.isDrapp(1933), 'DRAPP years are told apart from provider years');
 check(!!S.SOURCES[2026].stream && S.SOURCES[2026].interim, '2026 is DRCOG\'s interim mosaic');
 
@@ -78,13 +78,14 @@ check(!document.querySelector('#divider').hidden && document.querySelector('#tag
 
 /* The timeline shows the years that exist downtown, and no others. */
 const chips = [...document.querySelectorAll('#chips .chip')].map((c) => c.textContent);
-check(chips.join() === '1933,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026,Satellite', `downtown timeline, with the satellite last while comparing: ${chips}`);
+check(chips.join() === '1933,1953,1963,1964,1969,1970,1971,1972,1975,1978,1980,1983,1984,1988,1991,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026,Satellite', `downtown timeline, with the satellite last while comparing: ${chips}`);
 check(document.querySelector('.chip[data-year="2014"]').classList.contains('need'), 'an archive year not yet read is marked as needing a load');
 check(document.querySelector('.chip[data-year="2024"]').classList.contains('now'), 'a mosaic year is instant');
 check(A.how(1977, 39.7482, -104.9935) === null && A.how(1933, 39.7482, -104.9935) === 'tiles', '1977 is Boulder County only; 1933 covers downtown');
 check(A.how(2014, 39.7482, -104.9935) === 'read' && A.how(2024, 39.7482, -104.9935) === 'tiles', '2014 downtown is a read, 2024 is tiles');
 check(A.how(2024, 38.83, -104.82) === null, 'Colorado Springs is outside the region');
 check(PR.covers(S.SOURCES[1933].providers[0], 39.7482, -104.9935), 'downtown Denver is inside the 1933 King coverage');
+check(S.SOURCES[1970].providers[0].usgs && S.label(1970) === '1970' && S.label(1990) === '1990s', 'downtown, 1970 is the USGS year and reads as its year; 1990 is still the decade cache');
 
 /* Tiles: a first ask is one image pixel per CSS pixel at quality 78; the
    sharpen pass asks for the screen's density, never finer than 3 in. */
