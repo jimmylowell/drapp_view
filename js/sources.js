@@ -121,6 +121,26 @@
     1991: usgs(1991, [39.5702, -105.0650, 39.8490, -104.7993], 17, 36, 1.9),
   };
 
+  /* USGS orthophotos, on coordinates as published (from EarthExplorer): the
+     1999 and 1993-94 digital orthophoto quarter quads (DOQ), 1 m, black and
+     white, made from NAPP photos; 1993-94 is one set produced in 1998, 17
+     quarter quads from NAPP of June 1993 and three dated 23 September 1994
+     (Fort Logan NE and SE, Commerce City SW), so it is one year here. And
+     DRCOG's own April 2002 orthoimagery at 0.3 m in colour, which USGS holds
+     as High Resolution Orthoimagery: with it 2002 draws across central
+     Denver, not only in Arapahoe County. PREVIEW: read from the XPS's tiles. */
+  const ORTHO_TILES = '../ortho/{Y}/{z}/{x}/{y}.webp';
+  const ortho = (folder, cover, maxZoom, res, credit, src) => ({
+    kind: 'xyz', url: ORTHO_TILES.replace('{Y}', folder), maxZoom, cover, res,
+    src, credit, area: 'central Denver', home: USGS_HOME,
+  });
+  const O = {
+    1993: ortho(1993, [39.5591, -105.1309, 39.8170, -104.8068], 17, 39, 'USGS', 'orthophoto quarter quads, 1 m, black and white'),
+    1994: ortho(1994, [39.6205, -105.0677, 39.8170, -104.9332], 17, 39, 'USGS', 'orthophoto quarter quads, 1 m, black and white'),
+    1999: ortho(1999, [39.5591, -105.1309, 39.8170, -104.8068], 17, 39, 'USGS', 'orthophoto quarter quads, 1 m, black and white'),
+    2002: ortho(2002, [39.6099, -105.1117, 39.8138, -104.8480], 18, 12, 'DRCOG', 'orthoimagery, April 2002, 0.3 m colour, via USGS'),
+  };
+
   /* How the archive GeoTIFFs are laid out inside, for the cost estimate before
      a read starts (measured 2026-09-07, downtown tiles; js/tiffwindow.js reads
      the real directory and does not depend on this):
@@ -153,11 +173,13 @@
     2008: { archive: 'sid', providers: [arapahoe(9, ARAPAHOE_COUNTY, 6)] },
     2006: { archive: 'tif', layout: LAYOUT_2006, providers: [arapahoe(10, ARAPAHOE_COUNTY, 6)] },
     2004: { archive: 'tif', layout: LAYOUT_2004, providers: [arapahoe(11, ARAPAHOE_COUNTY, 6)] },
-    2002: { archive: 'jp2', providers: [arapahoe(12, [39.5444, -105.0731, 39.77, -104.2358], 6)] },
+    2002: { archive: 'jp2', providers: [O[2002], arapahoe(12, [39.5444, -105.0731, 39.77, -104.2358], 6)] },
     2000: { providers: [
       arapahoe(13, [39.5381, -105.0729, 39.7668, -103.6836], 12),
       boulder('color2000', [39.7068, -105.6975, 40.2634, -105.0525], 12, 'county aerial'),
     ] },
+    1999: { providers: [O[1999]] },
+    1993: { label: '1993–94', providers: [O[1993], O[1994]] },
     1998: { providers: [arapahoe(14, [39.563, -105.0548, 39.7432, -104.602], 12, '(black and white)')] },
     1991: { providers: [U[1991]] },
     1988: { providers: [U[1988]] },

@@ -67,7 +67,7 @@ if (!window.DRAPP || !window.DRAPP.app) { console.error('SMOKE FAIL: the page di
 const { app: A, sources: S, proj: P, estimate: E, tiles: T, providers: PR } = window.DRAPP;
 const M = A.map();
 check(!!document.querySelector('#map.leaflet-container'), 'Leaflet map initialised');
-check(S.YEARS.length === 37 && S.YEARS[0] === 1930 && S.YEARS[36] === 2026, `37 years, 1930 to 2026: ${S.YEARS}`);
+check(S.YEARS.length === 39 && S.YEARS[0] === 1930 && S.YEARS[38] === 2026, `39 years, 1930 to 2026: ${S.YEARS}`);
 check(S.isDrapp(2024) && S.isDrapp(2026) && !S.isDrapp(1933), 'DRAPP years are told apart from provider years');
 check(!!S.SOURCES[2026].stream && S.SOURCES[2026].interim, '2026 is DRCOG\'s interim mosaic');
 
@@ -84,7 +84,7 @@ check(A.state.active === 0 && document.querySelector('#years').hidden, 'back on 
 
 /* The timeline shows the years that exist downtown, and no others. */
 const chips = [...document.querySelectorAll('#years .opt b')].map((c) => c.textContent).reverse();
-check(chips.join() === '1933,1953,1963,1964,1969,1970,1971,1972,1975,1978,1980,1983,1984,1988,1991,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026,Satellite', `downtown timeline, with the satellite last while comparing: ${chips}`);
+check(chips.join() === '1933,1953,1963,1964,1969,1970,1971,1972,1975,1978,1980,1983,1984,1988,1991,1993–94,1999,2002,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026,Satellite', `downtown timeline, with the satellite last while comparing: ${chips}`);
 check(document.querySelector('.opt[data-year="2014"]').classList.contains('need'), 'an archive year not yet read is marked as needing a load');
 check(document.querySelector('.opt[data-year="2024"]').classList.contains('now'), 'a mosaic year is instant');
 check(document.querySelector('#years').hidden && document.querySelector('#years .opt b').textContent === 'Satellite', 'the year list waits closed, newest first');
