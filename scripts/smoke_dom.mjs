@@ -82,8 +82,10 @@ check(chips.join() === '1933,1953,1963,1964,1969,1970,1971,1972,1975,1978,1980,1
 check(document.querySelector('.opt[data-year="2014"]').classList.contains('need'), 'an archive year not yet read is marked as needing a load');
 check(document.querySelector('.opt[data-year="2024"]').classList.contains('now'), 'a mosaic year is instant');
 check(document.querySelector('#years').hidden && document.querySelector('#years .opt b').textContent === 'Satellite', 'the year list waits closed, newest first');
-check(document.querySelector('.opt[data-year="1971"] small').textContent === 'USGS' && document.querySelector('.opt[data-year="2024"] small').textContent === 'DRCOG'
-  && document.querySelector('.opt[data-year="2014"] small').textContent === 'DRCOG archive', 'each year in the list says where it comes from here');
+check(document.querySelector('.opt[data-year="1971"] .who').textContent === 'USGS' && document.querySelector('.opt[data-year="2024"] .who').textContent === 'DRCOG'
+  && document.querySelector('.opt[data-year="2014"] .who').textContent === 'DRCOG archive', 'each year in the list says where it comes from here');
+check(document.querySelector('.opt[data-year="2024"] .px').textContent === '3 in' && document.querySelector('.opt[data-year="1971"] .px').textContent === '3 ft'
+  && document.querySelector('.opt[data-year="1933"] .px').textContent === '1 ft', 'each year in the list says how much ground one pixel covers');
 document.querySelector('#year-pick').click();
 check(!document.querySelector('#years').hidden && document.querySelector('#year-pick').getAttribute('aria-expanded') === 'true', 'the year opens the list');
 document.querySelector('.opt[data-year="2022"]').click();

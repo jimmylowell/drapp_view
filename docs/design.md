@@ -29,7 +29,8 @@ panning/zooming should not kill bandwidth immediately."
   with where it comes from and how sharp it is, and what the visit has downloaded. The
   year is a button that opens a list of the years **that exist where the map is
   centred**, newest first, each with a small note of who serves it there (USGS, DRCOG,
-  DRCOG archive, a county). A year in dim type has to be read out of DRCOG's archive for
+  DRCOG archive, a county) and how much ground one pixel covers there, as the source
+  records it (for a USGS year, the coarser of its middle frame's scan and its deepest tile). A year in dim type has to be read out of DRCOG's archive for
   this view. (Was a row of chips, one per year; a list is shorter on a phone and has
   room for the source.)
 - **Compare** splits the map with a draggable divider: side by side with the older year
@@ -37,7 +38,9 @@ panning/zooming should not kill bandwidth immediately."
   (a phone held upright) opens stacked, so each half keeps the full width; the round
   button by the divider's handle turns it the other way for the rest of the visit. The
   handle and that button sit at the end of the line, clear of the picture: at the top
-  side by side, at the right edge stacked, where the year tags are not. The year tag
+  side by side, at the right edge stacked. The year tags stay away from the line too:
+  side by side at the top corners, stacked at the far end of each half (the older at the
+  top, the newer just above the timeline). The year tag
   on each half says which half the timeline is driving, and under the year whose picture
   it is.
 - **Satellite** is in the year list while comparing, and only then: Esri World Imagery as one

@@ -507,6 +507,17 @@
     const p = (src.providers || []).find((q) => providerHere(q, lat, lon));
     return p ? p.credit : '';
   }
+  /* How fine the picture is there: the ground one pixel covers, as the source
+     records it (a provider's `res`, in inches; DRCOG's mosaic grid; the archive
+     layout). The satellite's varies from spot to spot; its tag reads it. */
+  function pixelNote(y, h, lat, lon) {
+    const src = S[y];
+    if (src.sat) return '';
+    if (src.stream) return resLabel(SRC_RES);
+    if (h === 'read') return src.layout ? resLabel(src.layout.res) : '';
+    const p = (src.providers || []).find((q) => providerHere(q, lat, lon));
+    return p && p.res ? resLabel(p.res / 12) : '';
+  }
   function paintTimeline() {
     const years = yearsHere();
     const sel = state.sides.map((s) => s.year);
@@ -521,14 +532,20 @@
       return 'now';
     });
     const notes = years.map((y, n) => sourceNote(y, hows[n], c.lat, c.lng));
-    const sig = years.map(sources.label).join() + '|' + kinds.join() + '|' + notes.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
+    const pxs = years.map((y, n) => pixelNote(y, hows[n], c.lat, c.lng));
+    const sig = years.map(sources.label).join() + '|' + kinds.join() + '|' + notes.join() + '|' + pxs.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
     if (sig === chipSig) return;
     chipSig = sig;
     list.innerHTML = '';
+    const head = el('div', 'years-head');
+    head.setAttribute('aria-hidden', 'true');
+    head.append(el('span', '', 'Year and source here'), el('span', '', 'one pixel'));
+    list.appendChild(head);
     years.forEach((y, n) => {
       const b = el('button', 'opt ' + kinds[n]);
       b.type = 'button'; b.dataset.year = y; b.setAttribute('role', 'option');
-      b.append(el('b', '', sources.label(y)), el('small', '', notes[n]));
+      b.append(el('b', '', sources.label(y)), el('small', 'who', notes[n]), el('small', 'px', pxs[n]));
+      if (pxs[n]) b.setAttribute('aria-label', `${sources.label(y)}, ${notes[n]}, ${pxs[n]} a pixel`);
       const side = sel.indexOf(y);
       b.setAttribute('aria-selected', String(y === sel[state.active]));
       if (y === sel[state.active]) b.classList.add('on');
@@ -744,7 +761,9 @@
     flip.textContent = stack ? '⇄' : '⇅';
     flip.title = stack ? 'Show the two years side by side' : 'Show the two years one above the other';
     flip.setAttribute('aria-label', flip.title);
-    $('#tags').style.top = stack ? at + 'px' : '';
+    /* Stacked, each year's tag sits at the far end of its own half, away from
+       the line: the older at the top, the newer just above the timeline. */
+    $('#tag-1').style.bottom = comparing && stack ? Math.round(window.innerHeight - $('.dock').getBoundingClientRect().top + 10) + 'px' : '';
     const nw = map.containerPointToLayerPoint([0, 0]), se = map.containerPointToLayerPoint(size);
     const cut = (stack ? nw.y : nw.x) + at;
     for (const v of views.values()) {

@@ -90,8 +90,9 @@
      already placed, newest to oldest, then the frames of a year were joined
      into one picture and cut into Web Mercator tiles. `err` is the year's
      held-out error at its middle frame: how far, in metres, the fit put
-     check points it was not fitted to from where they are. `res` is the
-     middle frame's scan, in inches a pixel. `cover` is the box round the
+     check points it was not fitted to from where they are. `res`, in inches,
+     is the ground one pixel covers: the middle frame's scan or the tile pixel
+     at the year's deepest zoom (about 36 in at 17, 72 at 16), the coarser. `cover` is the box round the
      year's frames; inside it the tiles are transparent where no frame is.
      PREVIEW: the tiles are read from the XPS's own folders, so this page
      works only there; the live build reads one file a year from R2. */
@@ -102,22 +103,22 @@
     src: `aerial photos, placed by matching, ${err} m held out`, credit: 'USGS', area: 'the USGS frames around Denver', home: USGS_HOME,
   });
   const U = {
-    1939: usgs(1939, [39.5863, -104.9430, 39.7028, -104.8007], 17, 19, 2.7),
+    1939: usgs(1939, [39.5863, -104.9430, 39.7028, -104.8007], 17, 36, 2.7),
     1953: usgs(1953, [39.4837, -105.2041, 39.9183, -104.6761], 17, 60, 3.6),
-    1963: usgs(1963, [39.5644, -105.1714, 39.8353, -104.8038], 17, 16, 2.3),
-    1964: usgs(1964, [39.5636, -105.1806, 39.8385, -104.8035], 17, 17, 2.3),
+    1963: usgs(1963, [39.5644, -105.1714, 39.8353, -104.8038], 17, 36, 2.3),
+    1964: usgs(1964, [39.5636, -105.1806, 39.8385, -104.8035], 17, 36, 2.3),
     1969: usgs(1969, [39.4635, -105.3318, 40.0397, -104.5143], 17, 112, 3.3),
     1970: usgs(1970, [39.3695, -105.3953, 40.0654, -104.5578], 17, 94, 3.6),
-    1971: usgs(1971, [39.4493, -105.2801, 39.9472, -104.6615], 17, 25, 2.6),
+    1971: usgs(1971, [39.4493, -105.2801, 39.9472, -104.6615], 17, 36, 2.6),
     1972: usgs(1972, [39.4128, -105.3671, 40.0470, -104.5492], 17, 96, 3.4),
     1975: usgs(1975, [39.4712, -105.3123, 39.9709, -104.7001], 16, 78, 4.0),
-    1978: usgs(1978, [39.4802, -105.3918, 39.9584, -104.7713], 17, 28, 2.8),
+    1978: usgs(1978, [39.4802, -105.3918, 39.9584, -104.7713], 17, 36, 2.8),
     1979: usgs(1979, [39.5141, -105.3094, 39.7095, -105.0913], 16, 84, 4.3),
-    1980: usgs(1980, [39.4693, -105.1660, 40.0044, -104.6069], 17, 27, 3.3),
+    1980: usgs(1980, [39.4693, -105.1660, 40.0044, -104.6069], 17, 36, 3.3),
     1983: usgs(1983, [39.4828, -105.3073, 39.9523, -104.9415], 17, 184, 4.2),
     1984: usgs(1984, [39.4859, -105.0515, 39.9618, -104.7041], 17, 56, 3.2),
     1988: usgs(1988, [39.5525, -105.2170, 39.8620, -104.8044], 16, 147, 2.7),
-    1991: usgs(1991, [39.5702, -105.0650, 39.8490, -104.7993], 17, 22, 1.9),
+    1991: usgs(1991, [39.5702, -105.0650, 39.8490, -104.7993], 17, 36, 1.9),
   };
 
   /* How the archive GeoTIFFs are laid out inside, for the cost estimate before
