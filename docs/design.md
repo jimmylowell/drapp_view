@@ -31,7 +31,11 @@ panning/zooming should not kill bandwidth immediately."
   centred**, newest first, each with a small note of who serves it there (USGS, DRCOG,
   DRCOG archive, a county) and how much ground one pixel covers there, as the source
   records it (for a USGS year, the coarser of its middle frame's scan and its deepest tile). A year in dim type has to be read out of DRCOG's archive for
-  this view. (Was a row of chips, one per year; a list is shorter on a phone and has
+  this view. **Blurry years fold away.** A year whose pixel here covers more than a metre of
+  ground (over 3 ft: the coarse USGS scans, the decade caches) is left out of the list,
+  the arrows and play, behind one row at the foot of the list, "Show n blurry years".
+  The choice is remembered in the browser. The year on show is never left out, so a
+  link to a blurry year opens it, and *Save → Every year here* still saves them all. (Was a row of chips, one per year; a list is shorter on a phone and has
   room for the source.)
 - **Compare** splits the map with a draggable divider: side by side with the older year
   on the left, or stacked with the older year on top. A screen taller than it is wide

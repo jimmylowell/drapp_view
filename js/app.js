@@ -55,6 +55,9 @@
     get sharp() { try { const v = localStorage.getItem('drapp.sharp'); if (v != null) return v === '1'; } catch (e) { /* private mode */ }
       return !(navigator.connection && navigator.connection.saveData); },
     set sharp(v) { try { localStorage.setItem('drapp.sharp', v ? '1' : '0'); } catch (e) { /* private mode */ } },
+    /* Whether the blurry years are in the year list and in the walk through the years. */
+    get coarse() { try { return localStorage.getItem('drapp.coarse') === '1'; } catch (e) { return false; } },
+    set coarse(v) { try { localStorage.setItem('drapp.coarse', v ? '1' : '0'); } catch (e) { /* private mode */ } },
   };
 
   const state = {
@@ -512,14 +515,26 @@
   /* How fine the picture is there: the ground one pixel covers, as the source
      records it (a provider's `res`, in inches; DRCOG's mosaic grid; the archive
      layout). The satellite's varies from spot to spot; its tag reads it. */
-  function pixelNote(y, h, lat, lon) {
+  function pixelFt(y, h, lat, lon) {
     const src = S[y];
-    if (src.sat) return '';
-    if (src.stream) return resLabel(SRC_RES);
-    if (h === 'read') return src.layout ? resLabel(src.layout.res) : '';
+    if (src.sat) return 0;
+    if (src.stream) return SRC_RES;
+    if (h === 'read') return src.layout ? src.layout.res : 0;
     const p = (src.providers || []).find((q) => providerHere(q, lat, lon));
-    return p && p.res ? resLabel(p.res / 12) : '';
+    return p && p.res ? p.res / 12 : 0;
   }
+  function pixelNote(y, h, lat, lon) {
+    const ft = pixelFt(y, h, lat, lon);
+    return ft ? resLabel(ft) : '';
+  }
+  /* A blurry year, as the list calls it: one whose pixel here covers more than a metre of ground
+     (USGS's own orthophotos are 1 m, the sharp film scans about 3 ft). Such a
+     year stays out of the year list and out of stepping and play until asked
+     for; the year on show is never left out. */
+  const COARSE_FT = 3.5;
+  let showCoarse = prefs.coarse;
+  const isCoarse = (y) => { const c = map.getCenter(); return pixelFt(y, how(y, c.lat, c.lng), c.lat, c.lng) > COARSE_FT; };
+  const leftOut = (y) => !showCoarse && isCoarse(y) && !state.sides.some((s) => s.year === y);
   function paintTimeline() {
     const years = yearsHere();
     const sel = state.sides.map((s) => s.year);
@@ -535,7 +550,8 @@
     });
     const notes = years.map((y, n) => sourceNote(y, hows[n], c.lat, c.lng));
     const pxs = years.map((y, n) => pixelNote(y, hows[n], c.lat, c.lng));
-    const sig = years.map(sources.label).join() + '|' + kinds.join() + '|' + notes.join() + '|' + pxs.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
+    const coarse = years.map((y) => isCoarse(y));
+    const sig = years.map(sources.label).join() + '|' + kinds.join() + '|' + notes.join() + '|' + pxs.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '') + '|' + coarse.join() + showCoarse;
     if (sig === chipSig) return;
     chipSig = sig;
     list.innerHTML = '';
@@ -544,6 +560,7 @@
     head.append(el('span', '', 'Year and source here'), el('span', '', 'one pixel'));
     list.appendChild(head);
     years.forEach((y, n) => {
+      if (leftOut(y)) return;
       const b = el('button', 'opt ' + kinds[n]);
       b.type = 'button'; b.dataset.year = y; b.setAttribute('role', 'option');
       b.append(el('b', '', sources.label(y)), el('small', 'who', notes[n]), el('small', 'px', pxs[n]));
@@ -558,6 +575,14 @@
         : kinds[n] === 'off' ? `${sources.label(y)} has nothing here` : sources.label(y);
       list.appendChild(b);
     });
+    const nCoarse = coarse.filter(Boolean).length;
+    if (nCoarse) {
+      const m = el('button', 'more', showCoarse ? `Hide the ${nCoarse} blurry year${nCoarse === 1 ? '' : 's'}` : `Show ${nCoarse} blurry year${nCoarse === 1 ? '' : 's'}`);
+      m.type = 'button'; m.setAttribute('aria-pressed', String(showCoarse));
+      m.append(el('small', '', 'over 3 ft a pixel'));
+      m.title = 'Years whose picture here is coarser than a metre a pixel';
+      list.appendChild(m);
+    }
   }
   function showYears(open) {
     list.hidden = !open;
@@ -569,12 +594,18 @@
   }
   yearPick.addEventListener('click', () => showYears(list.hidden));
   list.addEventListener('click', (ev) => {
+    if (ev.target.closest('.more')) {
+      showCoarse = !showCoarse; prefs.coarse = showCoarse;
+      chipSig = ''; paintTimeline();
+      const m = $('.more', list); if (m) m.focus({ preventScroll: true });
+      return;
+    }
     const b = ev.target.closest('.opt');
     if (!b) return;
     stopPlay(); pick(+b.dataset.year); showYears(false); yearPick.focus();
   });
   list.addEventListener('keydown', (ev) => {
-    const opts = [...list.querySelectorAll('.opt')], at = opts.indexOf(document.activeElement);
+    const opts = [...list.querySelectorAll('.opt, .more')], at = opts.indexOf(document.activeElement);
     if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
       ev.preventDefault();
       const n = Math.max(0, Math.min(opts.length - 1, at + (ev.key === 'ArrowDown' ? 1 : -1)));
@@ -595,7 +626,7 @@
     showSides();
   }
   function step(dir) {
-    const years = yearsHere(), cur = state.sides[state.active].year;
+    const years = yearsHere().filter((y) => !leftOut(y)), cur = state.sides[state.active].year;
     const next = dir > 0 ? years.find((y) => y > cur) : [...years].reverse().find((y) => y < cur);
     if (next != null) pick(next);
   }
@@ -604,7 +635,7 @@
      oldest to newest, round and round. */
   function playable() {
     const c = map.getCenter(), vb = viewBox();
-    return yearsHere(false).filter((y) => how(y, c.lat, c.lng) === 'tiles' || patchUnder(y, vb));
+    return yearsHere(false).filter((y) => !leftOut(y) && (how(y, c.lat, c.lng) === 'tiles' || patchUnder(y, vb)));
   }
   function stopPlay() { clearInterval(state.playing); state.playing = 0; $('#play').classList.remove('on'); $('#play').setAttribute('aria-pressed', 'false'); }
   function togglePlay() {
@@ -795,7 +826,7 @@
     } else {
       /* Left is the older picture: the nearest earlier year that is here, the
          right keeps what was on show. */
-      const cur = state.sides[0].year, years = yearsHere();
+      const cur = state.sides[0].year, years = yearsHere().filter((y) => !leftOut(y));
       const older = [...years].reverse().find((y) => y < cur) ?? years.find((y) => y !== cur) ?? cur;
       state.sides = [{ year: older, view: null }, { year: cur, view: null }];
       state.active = 0;

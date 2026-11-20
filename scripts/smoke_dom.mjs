@@ -82,9 +82,17 @@ check(document.querySelector('#years').hidden, 'the same tag again closes the li
 document.querySelector('#tag-0').click(); document.querySelector('#tag-0').click();
 check(A.state.active === 0 && document.querySelector('#years').hidden, 'back on the left side, list closed');
 
-/* The timeline shows the years that exist downtown, and no others. */
-const chips = [...document.querySelectorAll('#years .opt b')].map((c) => c.textContent).reverse();
-check(chips.join() === '1933,1953,1963,1964,1969,1970,1971,1972,1975,1978,1980,1983,1984,1988,1991,1993–94,1999,2002,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026,Satellite', `downtown timeline, with the satellite last while comparing: ${chips}`);
+/* The timeline shows the years that exist downtown, and no others. The years
+   coarser than a metre a pixel (the list calls them blurry) wait behind one row at the foot. */
+const listed = () => [...document.querySelectorAll('#years .opt b')].map((c) => c.textContent).reverse();
+const chips = listed();
+check(chips.join() === '1933,1963,1964,1971,1978,1980,1991,1993–94,1999,2002,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026,Satellite', `downtown timeline without the blurry years, the satellite last while comparing: ${chips}`);
+const more = () => document.querySelector('#years .more');
+check(more() && /^Show 8 blurry years/.test(more().textContent), `the blurry years wait behind one row: ${more() && more().textContent}`);
+more().click();
+check(listed().join() === '1933,1953,1963,1964,1969,1970,1971,1972,1975,1978,1980,1983,1984,1988,1991,1993–94,1999,2002,2004,2006,2010,2012,2014,2016,2018,2020,2022,2024,2026,Satellite' && /^Hide the 8 blurry years/.test(more().textContent), `asked for, every year is listed: ${listed()}`);
+more().click();
+check(listed().length === 22 && /^Show 8/.test(more().textContent), 'and they fold away again');
 check(document.querySelector('.opt[data-year="2014"]').classList.contains('need'), 'an archive year not yet read is marked as needing a load');
 check(document.querySelector('.opt[data-year="2024"]').classList.contains('now'), 'a mosaic year is instant');
 check(document.querySelector('#years').hidden && document.querySelector('#years .opt b').textContent === 'Satellite', 'the year list waits closed, newest first');
