@@ -18,7 +18,12 @@
    to where the detail is the point, are the tiles on screen asked again at the
    screen's own density (`sharpen`), never finer than the source's 3 in. A tile
    waits 120 ms before it is asked for at all, so zooming through five levels
-   fetches the last one. */
+   fetches the last one.
+
+   A source may also be one file that holds all its tiles (PMTiles, the USGS
+   years): `pm` names the file, and a tile is then a slice of bytes asked from
+   it with an HTTP Range request, through the same store and the same meter.
+   The file's own index is read once and kept by the reader. */
 (function () {
   const R = 20037508.342789244;
   const FT = 0.3048;
@@ -64,8 +69,11 @@
     if (typeof caches !== 'undefined') { try { await caches.delete(STORE); } catch (e) { /* ignore */ } }
   }
 
-  /* One image as a Blob: from the store if it is there, else the network. */
-  async function blob(url, signal, keep = true) {
+  /* One image as a Blob: from the store if it is there, else the network.
+     `get`, when given, fetches it some other way than a plain GET of `url`
+     (a slice of a tile file) and counts its own bytes; `url` is then only the
+     name the image is kept under. */
+  async function blob(url, signal, keep = true, get = null) {
     const c = await store();
     if (c) {
       try {
@@ -82,9 +90,12 @@
     if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', stop, { once: true }); }
     let b;
     try {
-      const r = await fetch(url, { signal: ctl.signal, mode: 'cors', credentials: 'omit' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      b = await r.blob();
+      if (get) b = await get(ctl.signal);
+      else {
+        const r = await fetch(url, { signal: ctl.signal, mode: 'cors', credentials: 'omit' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        b = await r.blob();
+      }
     } catch (e) {
       if (timedOut) throw new Error('timed out');
       throw e;
@@ -92,9 +103,37 @@
       clearTimeout(timer);
       if (signal) signal.removeEventListener('abort', stop);
     }
-    count(b.size, false);
+    if (!get) count(b.size, false);
     if (c && keep && b.size) c.put(url, new Response(b, { headers: { 'Content-Type': b.type || 'image/jpeg' } })).catch(() => {});
     return b;
+  }
+
+  /* ---------- tiles out of one file ---------- */
+  /* One reader a file, made on first use. The reader fetches the file's index
+     and each tile with Range requests; every answer is counted on the meter. */
+  const archives = new Map();
+  function archive(url) {
+    if (!archives.has(url)) {
+      if (typeof pmtiles === 'undefined') throw new Error('the tile-file reader did not load');
+      const src = new pmtiles.FetchSource(url);
+      const read = src.getBytes.bind(src);
+      src.getBytes = async (...a) => { const r = await read(...a); count(r.data.byteLength, false); return r; };
+      archives.set(url, new pmtiles.PMTiles(src));
+    }
+    return archives.get(url);
+  }
+  /* Which file holds zoom `z`: a year too big for one file keeps its deepest
+     zoom in a second (`pm.deep`). */
+  const pmFile = (pm, z) => (pm.deep && z >= pm.deep.zoom ? pm.deep.url : pm.url);
+  /* Tile z/x/y of `pm` as a Blob. A tile the file does not hold (no photo
+     there) is an error, as a 404 is for a tile server. */
+  function pmBlob(pm, z, x, y, signal, keep = true) {
+    const file = pmFile(pm, z);
+    return blob(`${file}?tile=${z}/${x}/${y}`, signal, keep, async (sig) => {
+      const t = await archive(file).getZxy(z, x, y, sig);
+      if (!t || !t.data || !t.data.byteLength) throw new Error('no tile');
+      return new Blob([t.data], { type: 'image/webp' });
+    });
   }
 
   /* A county's extent is a rectangle; the county is not. Inside the box but
@@ -140,6 +179,7 @@
       quality: 78, sharpQuality: 82, delay: 120,
       kind: 'image',        // 'image' ImageServer exportImage · 'map' MapServer export · 'xyz' cached z/y/x tiles
       service: '', layer: null, nativeFt: 0, detectFlat: false,
+      pm: null,             // an 'xyz' source whose tiles are in one file: { url, deep: { zoom, url } | null }
     },
 
     /* Mercator box of a tile. With 512 px tiles Leaflet's coords are one zoom
@@ -170,6 +210,12 @@
       return `${o.service}/${o.kind === 'image' ? 'exportImage' : 'export'}?${q}`;
     },
 
+    /* The picture for a tile: a slice of the source's file, or a GET of its address. */
+    fetchTile(coords, sharp, signal) {
+      const pm = this.options.pm;
+      return pm ? pmBlob(pm, coords.z, coords.x, coords.y, signal) : blob(this.url(coords, sharp), signal);
+    },
+
     /* Would asking again at the screen's density bring more pixels? */
     canSharpen(coords) {
       const o = this.options;
@@ -187,7 +233,7 @@
       img._ctl = ctl; img._coords = coords;
       const run = async () => {
         try {
-          const b = await blob(this.url(coords, false), ctl.signal);
+          const b = await this.fetchTile(coords, false, ctl.signal);
           img.onload = () => {
             if (this.options.detectFlat && isFlat(img)) { img._flat = true; img.style.visibility = 'hidden'; }
             img._ok = true;
@@ -256,7 +302,7 @@
       const todo = this.inView().filter((t) => t.el._ok && !t.el._flat && !t.el._sharp && this.canSharpen(t.coords));
       await Promise.all(todo.map(async (t) => {
         try {
-          const b = await blob(this.url(t.coords, true), ctl.signal);
+          const b = await this.fetchTile(t.coords, true, ctl.signal);
           if (ctl.signal.aborted || !t.el._url) return;
           const next = URL.createObjectURL(b), old = t.el._url;
           t.el.onload = () => { URL.revokeObjectURL(old); };
@@ -271,5 +317,5 @@
     },
   });
 
-  DRAPP.tiles = { Layer, blob, meter, watch: (f) => watchers.add(f), stats, clear, prune, tilePx, nativeZoom, isFlat };
+  DRAPP.tiles = { Layer, blob, pmBlob, pmFile, meter, watch: (f) => watchers.add(f), stats, clear, prune, tilePx, nativeZoom, isFlat };
 })();

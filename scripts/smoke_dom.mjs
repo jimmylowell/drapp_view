@@ -118,6 +118,15 @@ const arap = A.layerSpecs(2008)[0];
 check(arap.kind === 'map' && arap.layer === 9 && arap.detectFlat, 'Arapahoe 2008 is a map-service layer whose blank tiles are hidden');
 check(A.layerSpecs(1933)[0].kind === 'xyz' && A.layerSpecs(1933)[0].tileSize === 256, '1933 is a plain tile cache');
 
+/* The USGS years: each a PMTiles file in our bucket; a year over 512 MB keeps
+   its deepest zoom in a second file. */
+const u71 = A.layerSpecs(1971)[0], u91 = A.layerSpecs(1991)[0], o02 = S.SOURCES[2002].providers.find((p) => p.pm);
+check(u71.kind === 'xyz' && u71.pm && u71.minNativeZoom === 10 && u71.maxNativeZoom === 17, '1971 is read from one tile file, zoom 10 to 17');
+check(/^https:\/\/drapp-tiles\.myjimmycloud\.com\/usgs\/1971\.pmtiles$/.test(T.pmFile(u71.pm, 16)) && /\/usgs\/1971-z17\.pmtiles$/.test(T.pmFile(u71.pm, 17)), `1971 keeps zoom 17 in its own file: ${T.pmFile(u71.pm, 17)}`);
+check(!u91.pm.deep && /\/usgs\/1991\.pmtiles$/.test(T.pmFile(u91.pm, 17)), '1991 is one file at every zoom');
+check(o02 && /\/usgs\/ortho-2002-z18\.pmtiles$/.test(T.pmFile(o02.pm, 18)) && /\/usgs\/ortho-2002\.pmtiles$/.test(T.pmFile(o02.pm, 17)), '2002 across central Denver keeps zoom 18 in its own file');
+check(Object.values(S.SOURCES).every((y) => (y.providers || []).every((p) => p.kind !== 'xyz' || p.url || p.pm)), 'every tiled source has an address or a file');
+
 /* The read plan: an archive year is read at the screen's density for as much
    of the middle of the view as the budget buys. */
 const vb = { cx: 3142421.6, cy: 1697808.8 };

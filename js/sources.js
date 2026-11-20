@@ -94,12 +94,18 @@
      is the ground one pixel covers: the middle frame's scan or the tile pixel
      at the year's deepest zoom (about 36 in at 17, 72 at 16), the coarser. `cover` is the box round the
      year's frames; inside it the tiles are transparent where no frame is.
-     PREVIEW: the tiles are read from the XPS's own folders, so this page
-     works only there; the live build reads one file a year from R2. */
-  const USGS_TILES = '../year{Y}/tiles/{z}/{x}/{y}.webp';
+     Each year's tiles (WebP, zoom 10 to `maxZoom`) are packed into one PMTiles
+     file in our own R2 bucket and read from it a tile at a time by Range
+     request (js/tiles.js). `deep` names a year too big for Cloudflare to cache
+     as one file (over 512 MB): its deepest zoom is a second file, <name>-z<zoom>. */
+  const USGS_FILES = 'https://drapp-tiles.myjimmycloud.com/usgs/';
+  const pmFiles = (name, deep) => ({
+    url: USGS_FILES + name + '.pmtiles',
+    deep: deep ? { zoom: deep, url: `${USGS_FILES}${name}-z${deep}.pmtiles` } : null,
+  });
   const USGS_HOME = 'https://earthexplorer.usgs.gov/';
-  const usgs = (year, cover, maxZoom, res, err) => ({
-    kind: 'xyz', url: USGS_TILES.replace('{Y}', year), maxZoom, cover, res, usgs: true,
+  const usgs = (year, cover, maxZoom, res, err, deep) => ({
+    kind: 'xyz', pm: pmFiles(String(year), deep), minZoom: 10, maxZoom, cover, res, usgs: true,
     src: `aerial photos, placed by matching, ${err} m held out`, credit: 'USGS', area: 'the USGS frames around Denver', home: USGS_HOME,
   });
   const U = {
@@ -108,8 +114,8 @@
     1963: usgs(1963, [39.5644, -105.1714, 39.8353, -104.8038], 17, 36, 2.3),
     1964: usgs(1964, [39.5636, -105.1806, 39.8385, -104.8035], 17, 36, 2.3),
     1969: usgs(1969, [39.4635, -105.3318, 40.0397, -104.5143], 17, 112, 3.3),
-    1970: usgs(1970, [39.3695, -105.3953, 40.0654, -104.5578], 17, 94, 3.6),
-    1971: usgs(1971, [39.4493, -105.2801, 39.9472, -104.6615], 17, 36, 2.6),
+    1970: usgs(1970, [39.3695, -105.3953, 40.0654, -104.5578], 17, 94, 3.6, 17),
+    1971: usgs(1971, [39.4493, -105.2801, 39.9472, -104.6615], 17, 36, 2.6, 17),
     1972: usgs(1972, [39.4128, -105.3671, 40.0470, -104.5492], 17, 96, 3.4),
     1975: usgs(1975, [39.4712, -105.3123, 39.9709, -104.7001], 16, 78, 4.0),
     1978: usgs(1978, [39.4802, -105.3918, 39.9584, -104.7713], 17, 36, 2.8),
@@ -128,17 +134,17 @@
      (Fort Logan NE and SE, Commerce City SW), so it is one year here. And
      DRCOG's own April 2002 orthoimagery at 0.3 m in colour, which USGS holds
      as High Resolution Orthoimagery: with it 2002 draws across central
-     Denver, not only in Arapahoe County. PREVIEW: read from the XPS's tiles. */
-  const ORTHO_TILES = '../ortho/{Y}/{z}/{x}/{y}.webp';
-  const ortho = (folder, cover, maxZoom, res, credit, src) => ({
-    kind: 'xyz', url: ORTHO_TILES.replace('{Y}', folder), maxZoom, cover, res,
+     Denver, not only in Arapahoe County. Packed and read like the years above
+     (ortho-<year>.pmtiles). */
+  const ortho = (folder, cover, maxZoom, res, credit, src, deep) => ({
+    kind: 'xyz', pm: pmFiles('ortho-' + folder, deep), minZoom: 10, maxZoom, cover, res,
     src, credit, area: 'central Denver', home: USGS_HOME,
   });
   const O = {
     1993: ortho(1993, [39.5591, -105.1309, 39.8170, -104.8068], 17, 39, 'USGS', 'orthophoto quarter quads, 1 m, black and white'),
     1994: ortho(1994, [39.6205, -105.0677, 39.8170, -104.9332], 17, 39, 'USGS', 'orthophoto quarter quads, 1 m, black and white'),
     1999: ortho(1999, [39.5591, -105.1309, 39.8170, -104.8068], 17, 39, 'USGS', 'orthophoto quarter quads, 1 m, black and white'),
-    2002: ortho(2002, [39.6099, -105.1117, 39.8138, -104.8480], 18, 12, 'DRCOG', 'orthoimagery, April 2002, 0.3 m colour, via USGS'),
+    2002: ortho(2002, [39.6099, -105.1117, 39.8138, -104.8480], 18, 12, 'DRCOG', 'orthoimagery, April 2002, 0.3 m colour, via USGS', 18),
   };
 
   /* How the archive GeoTIFFs are laid out inside, for the cost estimate before

@@ -163,7 +163,9 @@
       if (p.kind === 'map') {
         out.push({ kind: 'map', service: p.service, layer: p.layer, nativeFt: p.res / 12, maxNativeZoom: tiles.nativeZoom(p.res / 12), bounds: coverBounds(p), detectFlat: true, provider: p });
       } else {
-        out.push({ kind: 'xyz', service: p.url, tileSize: 256, minZoom: 9, maxNativeZoom: p.maxZoom, bounds: coverBounds(p), provider: p });
+        const o = { kind: 'xyz', service: p.url || '', tileSize: 256, minZoom: 9, maxNativeZoom: p.maxZoom, bounds: coverBounds(p), provider: p };
+        if (p.pm) { o.pm = p.pm; o.minNativeZoom = p.minZoom; }     // one file a year; below its shallowest zoom that zoom is shown smaller
+        out.push(o);
       }
     }
     return out;

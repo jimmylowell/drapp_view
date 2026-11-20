@@ -106,7 +106,7 @@
   <p>On a phone or a high-density screen, <b>HD</b> on the timeline sharpens the picture to the screen's own pixels once the map has rested, zoomed in. It is about three times the data; tap it to turn it off.</p>
   <p>Everything the page fetches is kept in this browser so the same ground costs nothing twice. Nothing is sent anywhere. <button type="button" id="forget" class="link">Clear what is kept</button></p>
   <h2>Credits</h2>
-  <p>Aerial photographs and tile index: <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 1939 to 1991: <a href="https://earthexplorer.usgs.gov/" rel="noopener">USGS EarthExplorer</a>, aerial photo single frames, placed and joined for this page. Other years: <a href="https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer" rel="noopener">Arapahoe County</a>, Boulder County, South Metro Fire Rescue, the Colorado Department of Transportation, City and County of Denver. Ground outside the region, and the Satellite side of Compare: <a href="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer" rel="noopener">Esri World Imagery</a> (Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community). Addresses: U.S. Census Bureau geocoder and <a href="https://nominatim.org" rel="noopener">Nominatim</a>, © <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap contributors</a>. Map: <a href="https://leafletjs.com" rel="noopener">Leaflet</a>.</p>
+  <p>Aerial photographs and tile index: <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 1939 to 1991: aerial photo single frames courtesy of the U.S. Geological Survey, from <a href="https://earthexplorer.usgs.gov/" rel="noopener">USGS EarthExplorer</a>, placed and joined for this page; 1993–94 and 1999: digital orthophoto quarter quads courtesy of the U.S. Geological Survey. USGS's own data are in the <a href="https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits" rel="noopener">U.S. public domain</a>. 2002 across central Denver: DRCOG orthoimagery, from USGS EarthExplorer. Other years: <a href="https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer" rel="noopener">Arapahoe County</a>, Boulder County, South Metro Fire Rescue, the Colorado Department of Transportation, City and County of Denver. Ground outside the region, and the Satellite side of Compare: <a href="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer" rel="noopener">Esri World Imagery</a> (Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community). Addresses: U.S. Census Bureau geocoder and <a href="https://nominatim.org" rel="noopener">Nominatim</a>, © <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap contributors</a>. Map: <a href="https://leafletjs.com" rel="noopener">Leaflet</a>. The USGS years are read from one <a href="https://github.com/protomaps/PMTiles" rel="noopener">PMTiles</a> file a year.</p>
   <p class="mjc-foot">This site is brought to you by <a href="mailto:jimmy@myjimmycloud.com">Jimmy@MyJimmyCloud.com</a> · <a href="https://github.com/jimmylowell/drapp_view" rel="noopener">source code</a> · <a href="https://myjimmycloud.com">more projects</a></p>
 </dialog>
 
@@ -114,11 +114,12 @@
 <script src="js/vendor/geotiff.js?v=20261113"></script>
 <script src="js/vendor/leaflet.js?v=20261113"></script>
 <script src="js/proj.js?v=20261113"></script>
-<script src="js/sources.js?v=20261118"></script>
-<script src="js/tiles.js?v=20261113"></script>
+<script src="js/sources.js?v=20261120"></script>
+<script src="js/vendor/pmtiles.js?v=20261120"></script>
+<script src="js/tiles.js?v=20261120"></script>
 <script src="js/tileindex.js?v=20261113"></script>
 <script src="js/imageserver.js?v=20261113"></script>
-<script src="js/xyz.js?v=20261113"></script>
+<script src="js/xyz.js?v=20261120"></script>
 <script src="js/providers.js?v=20261113"></script>
 <script src="js/tiffwindow.js?v=20261113"></script>
 <script src="js/cache.js?v=20261113"></script>
@@ -126,6 +127,6 @@
 <script src="js/estimate.js?v=20261113"></script>
 <script src="js/geocode.js?v=20261113"></script>
 <script src="js/zip.js?v=20261113"></script>
-<script src="js/app.js?v=20261118"></script>
+<script src="js/app.js?v=20261120"></script>
 </body>
 </html>
