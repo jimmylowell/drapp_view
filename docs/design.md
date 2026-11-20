@@ -179,6 +179,13 @@ alone (`<name>-z17.pmtiles`, `-z18` for 2002). The bucket's CORS rule is
 `ci/r2-cors.json`. The files are made from the scans on the build machine; they are
 not in this repo.
 
+**Where a year ends.** Each of these years has a known edge, read off its own tiles
+(wherever a zoom-13 tile has any picture; `data/usgs-outline.json`, simplified to about
+30 m). It is drawn as a dashed line in the year's colour of accent, and when the edge is
+on screen a note says what the line is and what lies past it: today's picture, dimmed,
+or another source's picture of the same year (2002, 1953, 1970, 1980). The other
+sources publish only a box, which is not their real edge, so they get no line.
+
 Where a USGS year and a neighbour's scan share a key (1953, 1970, 1980), USGS is tried
 first; a decade key reads as its year ("1970", not "1970s") where the USGS year covers
 the middle of the map.

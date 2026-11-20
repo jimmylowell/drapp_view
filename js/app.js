@@ -183,6 +183,30 @@
     views.set(key, v);
     return v;
   }
+  /* ---------- where a year ends ----------
+     A year kept as our own tile files has a known edge: data/usgs-outline.json
+     holds it, read off the tiles themselves (wherever a zoom-13 tile has any
+     picture). It is drawn as a dashed line in the year's own pane, so it fades
+     and splits with the year. Other sources publish only a box, which is not
+     their real edge, so they get no line. */
+  let outlineP = null;
+  const outlines = () => outlineP || (outlineP = fetch('data/usgs-outline.json?v=20261120').then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
+  const edgeKey = (p) => (p && p.pm ? p.pm.url.replace(/^.*\//, '').replace(/\.pmtiles$/, '') : null);
+  const hasEdge = (year) => (S[year].providers || []).some((p) => p.pm);
+  function drawEdges(v) {
+    if (v.edges) { for (const e of v.edges) e.addTo(map); return; }
+    v.edges = [];
+    const keys = (S[v.year].providers || []).map(edgeKey).filter(Boolean);
+    if (!keys.length) return;
+    outlines().then((o) => {
+      if (v.edges.length) return;
+      for (const k of keys) {
+        for (const ring of o[k] || []) v.edges.push(L.polyline(ring, { pane: v.paneName, className: 'edge', color: '#e8c36a', weight: 1.5, opacity: 0.95, dashArray: '7 5', interactive: false }));
+      }
+      if (v.on) for (const e of v.edges) e.addTo(map);
+    });
+  }
+
   function mount(v) {
     if (v.on) return;
     v.on = true;
@@ -194,12 +218,14 @@
       });
     }
     for (const l of v.layers) l.addTo(map);
+    drawEdges(v);
     for (const p of rec(v.year).patches) addOverlay(v, p);
   }
   function unmount(v) {
     if (!v.on) return;
     v.on = false;
     for (const l of v.layers || []) map.removeLayer(l);
+    for (const e of v.edges || []) map.removeLayer(e);
     for (const o of v.overlays.values()) map.removeLayer(o.layer);
     v.overlays.clear();
     v.pane.style.opacity = 0;
@@ -443,10 +469,21 @@
     }
     const have = st.mode === 'patch' ? st.patch : null;
     if (!st.canRead) {
-      if (st.mode === 'partial' || have) return set('');
+      if (have) return set('');
+      /* The edge of the year is on screen: say what the dashed line is and what lies past it. */
+      if (st.mode === 'partial') {
+        if (!hasEdge(s.year) || state.sides.length === 2) return set('');   // while comparing the line speaks for itself: the note would sit on a year tag
+        /* One source: past the line there is no more of the year. Several: the line is
+           the edge of ours only, and another's picture may carry on beyond it. */
+        const ps = S[s.year].providers, ours = ps.find((p) => p.pm), rest = [...new Set(ps.filter((p) => !p.pm).map((p) => p.credit))];
+        const words = rest.length
+          ? `The dashed line is the edge of ${ours.credit}'s ${label}. ${rest.join(' and ')} may carry on past it.`
+          : `${label}'s photos end at the dashed line. Past it: ${state.contextYear}, dimmed.`;
+        return set(`<i class="dash"></i><span>${words}</span>`, 'note');
+      }
       const areas = [...new Set((S[s.year].providers || []).map((p) => p.area))];
       const why = S[s.year].archive === 'jp2' || S[s.year].archive === 'sid'
-        ? `${label} is online only for Arapahoe County. DRCOG's own ${label} files are ${S[s.year].archive === 'jp2' ? 'JPEG 2000' : 'MrSID'}, which a browser cannot open.`
+        ? `${label} is online only for ${areas.join(' and ')}. DRCOG's own ${label} files are ${S[s.year].archive === 'jp2' ? 'JPEG 2000' : 'MrSID'}, which a browser cannot open.`
         : areas.length ? `${label} covers only ${areas.join(' and ')}.` : `Nothing for ${label} here.`;
       return set(`<span>${why}</span>`, 'note');
     }
