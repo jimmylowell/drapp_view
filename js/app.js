@@ -55,7 +55,7 @@
     get sharp() { try { const v = localStorage.getItem('drapp.sharp'); if (v != null) return v === '1'; } catch (e) { /* private mode */ }
       return !(navigator.connection && navigator.connection.saveData); },
     set sharp(v) { try { localStorage.setItem('drapp.sharp', v ? '1' : '0'); } catch (e) { /* private mode */ } },
-    /* Whether the coarser years are in the year list and in the walk through the years. */
+    /* Whether the blurry years are in the year list and in the walk through the years. */
     get coarse() { try { return localStorage.getItem('drapp.coarse') === '1'; } catch (e) { return false; } },
     set coarse(v) { try { localStorage.setItem('drapp.coarse', v ? '1' : '0'); } catch (e) { /* private mode */ } },
   };
@@ -527,7 +527,7 @@
     const ft = pixelFt(y, h, lat, lon);
     return ft ? resLabel(ft) : '';
   }
-  /* A coarser year: one whose pixel here covers more than a metre of ground
+  /* A blurry year, as the list calls it: one whose pixel here covers more than a metre of ground
      (USGS's own orthophotos are 1 m, the sharp film scans about 3 ft). Such a
      year stays out of the year list and out of stepping and play until asked
      for; the year on show is never left out. */
@@ -577,7 +577,7 @@
     });
     const nCoarse = coarse.filter(Boolean).length;
     if (nCoarse) {
-      const m = el('button', 'more', showCoarse ? `Hide the ${nCoarse} coarser year${nCoarse === 1 ? '' : 's'}` : `Show ${nCoarse} coarser year${nCoarse === 1 ? '' : 's'}`);
+      const m = el('button', 'more', showCoarse ? `Hide the ${nCoarse} blurry year${nCoarse === 1 ? '' : 's'}` : `Show ${nCoarse} blurry year${nCoarse === 1 ? '' : 's'}`);
       m.type = 'button'; m.setAttribute('aria-pressed', String(showCoarse));
       m.append(el('small', '', 'over 3 ft a pixel'));
       m.title = 'Years whose picture here is coarser than a metre a pixel';
