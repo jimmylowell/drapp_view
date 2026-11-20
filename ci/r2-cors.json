@@ -1,0 +1,13 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": ["https://drapp.myjimmycloud.com"],
+        "methods": ["GET", "HEAD"],
+        "headers": ["Range", "If-Match", "If-None-Match"]
+      },
+      "exposeHeaders": ["Content-Length", "Content-Range", "ETag", "Accept-Ranges"],
+      "maxAgeSeconds": 86400
+    }
+  ]
+}

@@ -15,8 +15,8 @@
 <div id="map" aria-label="Aerial photograph map"></div>
 
 <div id="tags" hidden>
-  <button type="button" class="tag" id="tag-0" data-side="0" title="The timeline changes this side"><b></b><small></small></button>
-  <button type="button" class="tag" id="tag-1" data-side="1" title="The timeline changes this side"><b></b><small></small></button>
+  <button type="button" class="tag" id="tag-0" data-side="0" title="Pick this side's year"><b></b><small></small></button>
+  <button type="button" class="tag" id="tag-1" data-side="1" title="Pick this side's year"><b></b><small></small></button>
 </div>
 <div id="divider" hidden role="separator" aria-label="Drag to compare the two years"><span></span></div>
 <button type="button" id="flip" class="flip" hidden></button>
@@ -75,14 +75,14 @@
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path class="p" d="M7 4.5v15l12-7.5z" fill="currentColor"/><path class="s" d="M6 5h4.5v14H6zM13.5 5H18v14h-4.5z" fill="currentColor"/></svg>
       </button>
       <button type="button" id="next" class="icon" aria-label="Later year" title="Later year (→)">›</button>
-      <div class="what">
-        <b id="year-now"></b>
+      <button type="button" id="year-pick" class="what" aria-haspopup="listbox" aria-expanded="false" aria-controls="years" title="Pick a year">
+        <span class="yr"><b id="year-now"></b><svg class="caret" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         <span id="src"></span>
-      </div>
+      </button>
       <button type="button" id="hd" aria-pressed="true" hidden title="Full detail: sharpen to this screen's own pixels when the map rests zoomed in">HD</button>
       <span id="meter" title="Downloaded this visit">↓ 0 KB</span>
     </div>
-    <div id="chips" class="chips" role="group" aria-label="Year"></div>
+    <div id="years" class="years" role="listbox" aria-label="Years here" hidden></div>
   </div>
   <p id="credit" class="credit" hidden>Satellite: Powered by <a href="https://www.esri.com" rel="noopener">Esri</a> · Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community</p>
 </footer>
@@ -97,6 +97,8 @@
   <p><b>2004 to 2016</b> have no map service for most of the region, only DRCOG's raw archive: one large photo file per square of ground. Picking one reads just the part under the screen out of those files, piece by piece, and leaves it on the map. That takes seconds and more data, where the tiled years are instant. After that, moving somewhere new reads nothing until you press <i>Load here</i>, which says what it will cost first. 2002 and 2008 are in file formats a browser cannot open.</p>
   <p><b>Inside Arapahoe County</b> the county's own map service has every flight from 1998 to 2026, so every year there is instant.</p>
   <p><b>Before DRAPP</b> there was no regional programme. The older years come from whoever has scans online and cover only their own ground: the 1933 King aerial survey of central Denver, <a href="https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver" rel="noopener">georeferenced by the City and County of Denver</a>, <a href="https://maps.bouldercounty.org/arcgis/rest/services/RASTER" rel="noopener">Boulder County</a> (1977 and 2000), South Metro Fire Rescue's scans of its district by decade from the 1950s to the 1990s, and CDOT's scans of Golden (1930), Boulder (1948) and Englewood–Littleton (1953). The timeline only shows the years that exist where you are looking.</p>
+  <p><b>1939 to 1991</b> come from the <a href="https://en.wikipedia.org/wiki/United_States_Geological_Survey" rel="noopener">U.S. Geological Survey</a>'s aerial photo single frames, downloaded from <a href="https://earthexplorer.usgs.gov/" rel="noopener">EarthExplorer</a>: scans of the film, which carry no map position of their own. Each frame was placed here by matching it against USGS orthophotos of the 1990s and the years already placed, and each year's frames were joined into one picture. <i>n m held out</i> beside a year is how far off its middle frame is, in metres, at check points the fit was not given.</p>
+  <p><b>1993–94 and 1999</b> are USGS orthophotos, already on the map as published, and <b>2002</b> across central Denver is DRCOG's own orthoimagery of April 2002, which USGS also holds.</p>
   <h2>Against today's satellite</h2>
   <p>In Compare, <b>Satellite</b> at the end of the timeline puts Esri's World Imagery, a satellite base map, on one side, so DRAPP's 3 inches can be set against it with the divider. The tag on that side says which satellite took the picture under the middle of the screen, its pixel and the day, as Esri's own records give them. Try the <a href="#ll=39.739250,-104.984850&amp;z=21&amp;y=2024-esri" data-close>State Capitol dome</a> or <a href="#ll=39.753650,-105.000750&amp;z=21&amp;y=2024-esri" data-close>Union Station's train hall</a>.</p>
   <h2>Your data</h2>
@@ -104,7 +106,7 @@
   <p>On a phone or a high-density screen, <b>HD</b> on the timeline sharpens the picture to the screen's own pixels once the map has rested, zoomed in. It is about three times the data; tap it to turn it off.</p>
   <p>Everything the page fetches is kept in this browser so the same ground costs nothing twice. Nothing is sent anywhere. <button type="button" id="forget" class="link">Clear what is kept</button></p>
   <h2>Credits</h2>
-  <p>Aerial photographs and tile index: <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. Other years: <a href="https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer" rel="noopener">Arapahoe County</a>, Boulder County, South Metro Fire Rescue, the Colorado Department of Transportation, City and County of Denver. Ground outside the region, and the Satellite side of Compare: <a href="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer" rel="noopener">Esri World Imagery</a> (Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community). Addresses: U.S. Census Bureau geocoder and <a href="https://nominatim.org" rel="noopener">Nominatim</a>, © <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap contributors</a>. Map: <a href="https://leafletjs.com" rel="noopener">Leaflet</a>.</p>
+  <p>Aerial photographs and tile index: <a href="https://data.drcog.org" rel="noopener">DRCOG Regional Data Catalog</a>, <a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener">CC BY 3.0</a>. 1939 to 1991: aerial photo single frames courtesy of the U.S. Geological Survey, from <a href="https://earthexplorer.usgs.gov/" rel="noopener">USGS EarthExplorer</a>, placed and joined for this page; 1993–94 and 1999: digital orthophoto quarter quads courtesy of the U.S. Geological Survey. USGS's own data are in the <a href="https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits" rel="noopener">U.S. public domain</a>. 2002 across central Denver: DRCOG orthoimagery, from USGS EarthExplorer. Other years: <a href="https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer" rel="noopener">Arapahoe County</a>, Boulder County, South Metro Fire Rescue, the Colorado Department of Transportation, City and County of Denver. Ground outside the region, and the Satellite side of Compare: <a href="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer" rel="noopener">Esri World Imagery</a> (Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community). Addresses: U.S. Census Bureau geocoder and <a href="https://nominatim.org" rel="noopener">Nominatim</a>, © <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap contributors</a>. Map: <a href="https://leafletjs.com" rel="noopener">Leaflet</a>. The USGS years are read from one <a href="https://github.com/protomaps/PMTiles" rel="noopener">PMTiles</a> file a year.</p>
   <p class="mjc-foot">This site is brought to you by <a href="mailto:jimmy@myjimmycloud.com">Jimmy@MyJimmyCloud.com</a> · <a href="https://github.com/jimmylowell/drapp_view" rel="noopener">source code</a> · <a href="https://myjimmycloud.com">more projects</a></p>
 </dialog>
 
@@ -112,11 +114,12 @@
 <script src="js/vendor/geotiff.js?v=20261113"></script>
 <script src="js/vendor/leaflet.js?v=20261113"></script>
 <script src="js/proj.js?v=20261113"></script>
-<script src="js/sources.js?v=20261118"></script>
-<script src="js/tiles.js?v=20261113"></script>
+<script src="js/sources.js?v=20261120"></script>
+<script src="js/vendor/pmtiles.js?v=20261120"></script>
+<script src="js/tiles.js?v=20261120"></script>
 <script src="js/tileindex.js?v=20261113"></script>
 <script src="js/imageserver.js?v=20261113"></script>
-<script src="js/xyz.js?v=20261113"></script>
+<script src="js/xyz.js?v=20261120"></script>
 <script src="js/providers.js?v=20261113"></script>
 <script src="js/tiffwindow.js?v=20261113"></script>
 <script src="js/cache.js?v=20261113"></script>
@@ -124,6 +127,6 @@
 <script src="js/estimate.js?v=20261113"></script>
 <script src="js/geocode.js?v=20261113"></script>
 <script src="js/zip.js?v=20261113"></script>
-<script src="js/app.js?v=20261118"></script>
+<script src="js/app.js?v=20261120"></script>
 </body>
 </html>

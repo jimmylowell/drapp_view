@@ -69,11 +69,11 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 /* ---------- compare ---------- */
 #divider { position: fixed; z-index: 900; top: 0; bottom: 0; width: 44px; margin-left: -22px; cursor: ew-resize; touch-action: none; }
 #divider::before { content: ""; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 8px rgba(0, 0, 0, 0.7); }
-#divider span { position: absolute; left: 3px; top: 50%; width: 38px; height: 38px; margin-top: -19px; border-radius: 50%; background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6); }
+#divider span { position: absolute; left: 3px; top: calc(70px + var(--safe-t)); width: 38px; height: 38px; border-radius: 50%; background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6); }
 #divider span::before { content: "‹ ›"; position: absolute; inset: 0; display: grid; place-items: center; color: #222; font-weight: 700; font-size: 16px; letter-spacing: 1px; }
 #divider.stack { left: 0; right: 0; bottom: auto; width: auto; height: 44px; margin: -22px 0 0; cursor: ns-resize; }
 #divider.stack::before { left: 0; right: 0; top: 21px; bottom: auto; width: auto; height: 2px; }
-#divider.stack span { left: 50%; top: 3px; margin: 0 0 0 -19px; }
+#divider.stack span { left: auto; right: 10px; top: 3px; margin: 0; }
 #divider.stack span::before { transform: rotate(90deg); }
 .flip { position: fixed; z-index: 905; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; display: grid; place-items: center;
   background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.5); box-shadow: var(--shadow); color: var(--ink); font-size: 18px; line-height: 1;
@@ -88,35 +88,46 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .credit { margin: 0; padding: 2px 10px; border-radius: 10px; background: rgba(11, 15, 18, 0.7); color: var(--dim); font-size: 11px; text-align: center; }
 .credit a { color: inherit; }
 .tag.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
-/* Stacked: the older year's tag just above the line, the newer just below. */
-body.stacked #tags { right: auto; flex-direction: column; align-items: flex-start; gap: 22px; transform: translateY(-50%); }
+/* Stacked: each tag at the far end of its own half, away from the line: the older at the top, the newer just above the timeline (its bottom set by the script). */
+body.stacked #tags { right: auto; }
+body.stacked #tag-1 { position: fixed; left: 12px; }
 
 /* ---------- bottom: the timeline ---------- */
 .dock { position: fixed; z-index: 1000; left: 12px; right: 12px; bottom: calc(12px + var(--safe-b)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
 .dock > * { pointer-events: auto; }
-.timeline { width: min(900px, 100%); padding: 8px 10px 10px; background: var(--glass); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3); }
+.timeline { position: relative; width: min(900px, 100%); padding: 8px 10px 10px; background: var(--glass); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3); }
 .now { display: flex; align-items: center; gap: 2px; }
 .now .icon { font-size: 22px; line-height: 1; color: var(--ink); }
 #play .s { display: none; }
 #play.on { background: var(--accent); color: var(--accent-ink); }
 #play.on .p { display: none; }
 #play.on .s { display: inline; }
-.what { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; padding: 0 8px; }
+.what { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; padding: 2px 8px; border-radius: 12px; text-align: left; }
+.what:hover { background: var(--glass-2); }
+.yr { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.caret { color: var(--dim); transition: transform 0.15s; }
+.what[aria-expanded="true"] .caret { transform: rotate(180deg); }
 #year-now { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 #src { color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #hd { height: 22px; padding: 0 7px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: var(--dim); border: 1px solid var(--line); }
 #hd.on { color: var(--accent); border-color: rgba(232, 195, 106, 0.6); }
 #meter { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; padding: 0 6px; white-space: nowrap; }
-.chips { display: flex; align-items: center; gap: 4px; margin-top: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px; }
-.chips::-webkit-scrollbar { display: none; }
-.chip { flex: 1 0 auto; min-width: 50px; height: 34px; padding: 0 10px; border-radius: 17px; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); background: var(--glass-2); border: 1px solid transparent; transition: background 0.15s, color 0.15s; }
-.chip:hover { background: rgba(255, 255, 255, 0.16); }
-.chip.need { background: transparent; border: 1px dashed rgba(255, 255, 255, 0.28); color: var(--dim); }
-.chip.off { opacity: 0.4; }
-.chip.other { border: 1px solid var(--accent); color: var(--accent); }
-.chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.chip.busy { animation: pulse 0.9s ease-in-out infinite; }
-.chips .gap { flex: 0 0 14px; height: 1px; background: var(--line); }
+.years { position: absolute; left: 0; bottom: calc(100% + 8px); width: max-content; min-width: 230px; max-width: 100%; max-height: min(60vh, 440px); overflow-y: auto; overscroll-behavior: contain; padding: 6px;
+  background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3); }
+.opt { display: flex; align-items: baseline; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px; border-radius: 9px; text-align: left; border: 1px solid transparent; }
+.opt b { flex: none; min-width: 4.4em; font-size: 15px; font-variant-numeric: tabular-nums; }
+.opt small { color: var(--dim); font-size: 12px; white-space: nowrap; }
+.opt .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.opt .px { flex: none; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.years-head { position: sticky; top: -6px; z-index: 1; margin: -6px -6px 0; display: flex; justify-content: space-between; padding: 8px 16px 6px; background: rgb(16, 21, 26); border-radius: var(--radius) var(--radius) 0 0; color: var(--dim); font-size: 11px; letter-spacing: 0.02em; }
+.opt:hover, .opt:focus-visible { background: var(--glass-2); outline: none; }
+.opt.need b { color: var(--dim); }
+.opt.need .who::after { content: " · to load"; }
+.opt.off { opacity: 0.45; }
+.opt.other { border-color: var(--accent); }
+.opt.on { background: var(--accent); color: var(--accent-ink); }
+.opt.on small { color: var(--accent-ink); opacity: 0.75; }
+.opt.busy { animation: pulse 0.9s ease-in-out infinite; }
 
 .prompt { display: flex; align-items: center; gap: 10px; max-width: min(560px, 100%); padding: 8px 14px; border-radius: 22px; background: var(--glass); border: 1px solid var(--line); box-shadow: var(--shadow); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); font-size: 13px; position: relative; overflow: hidden; }
 .prompt.offer { padding: 0; background: var(--accent); border-color: var(--accent); }
@@ -162,7 +173,6 @@ dialog b { color: var(--ink); }
   .what { flex-direction: column; align-items: flex-start; gap: 0; }
   #year-now { font-size: 22px; }
   #src { max-width: 100%; font-size: 12px; }
-  .chip { flex: 0 0 auto; height: 36px; }
   #toast { top: calc(66px + var(--safe-t)); max-width: calc(100% - 90px); }
   .places { grid-template-columns: 1fr; }
 }

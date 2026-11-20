@@ -84,6 +84,69 @@
     src, credit: 'South Metro Fire Rescue', area: 'the South Metro fire district (Centennial to Parker)', home: SMFR + name + '_WTL1/MapServer',
   });
 
+  /* USGS aerial photo single frames (EarthExplorer), 1939 to 1991. The scans
+     carry no map position of their own: each frame was placed here by
+     matching it against the USGS orthophotos of 1993 to 1999 and the years
+     already placed, newest to oldest, then the frames of a year were joined
+     into one picture and cut into Web Mercator tiles. `err` is the year's
+     held-out error at its middle frame: how far, in metres, the fit put
+     check points it was not fitted to from where they are. `res`, in inches,
+     is the ground one pixel covers: the middle frame's scan or the tile pixel
+     at the year's deepest zoom (about 36 in at 17, 72 at 16), the coarser. `cover` is the box round the
+     year's frames; inside it the tiles are transparent where no frame is.
+     Each year's tiles (WebP, zoom 10 to `maxZoom`) are packed into one PMTiles
+     file in our own R2 bucket and read from it a tile at a time by Range
+     request (js/tiles.js). `deep` names a year too big for Cloudflare to cache
+     as one file (over 512 MB): its deepest zoom is a second file, <name>-z<zoom>. */
+  const USGS_FILES = 'https://drapp-tiles.myjimmycloud.com/usgs/';
+  const pmFiles = (name, deep) => ({
+    url: USGS_FILES + name + '.pmtiles',
+    deep: deep ? { zoom: deep, url: `${USGS_FILES}${name}-z${deep}.pmtiles` } : null,
+  });
+  const USGS_HOME = 'https://earthexplorer.usgs.gov/';
+  const usgs = (year, cover, maxZoom, res, err, deep) => ({
+    kind: 'xyz', pm: pmFiles(String(year), deep), minZoom: 10, maxZoom, cover, res, usgs: true,
+    src: `aerial photos, placed by matching, ${err} m held out`, credit: 'USGS', area: 'the USGS frames around Denver', home: USGS_HOME,
+  });
+  const U = {
+    1939: usgs(1939, [39.5863, -104.9430, 39.7028, -104.8007], 17, 36, 2.7),
+    1953: usgs(1953, [39.4837, -105.2041, 39.9183, -104.6761], 17, 60, 3.6),
+    1963: usgs(1963, [39.5644, -105.1714, 39.8353, -104.8038], 17, 36, 2.3),
+    1964: usgs(1964, [39.5636, -105.1806, 39.8385, -104.8035], 17, 36, 2.3),
+    1969: usgs(1969, [39.4635, -105.3318, 40.0397, -104.5143], 17, 112, 3.3),
+    1970: usgs(1970, [39.3695, -105.3953, 40.0654, -104.5578], 17, 94, 3.6, 17),
+    1971: usgs(1971, [39.4493, -105.2801, 39.9472, -104.6615], 17, 36, 2.6, 17),
+    1972: usgs(1972, [39.4128, -105.3671, 40.0470, -104.5492], 17, 96, 3.4),
+    1975: usgs(1975, [39.4712, -105.3123, 39.9709, -104.7001], 16, 78, 4.0),
+    1978: usgs(1978, [39.4802, -105.3918, 39.9584, -104.7713], 17, 36, 2.8),
+    1979: usgs(1979, [39.5141, -105.3094, 39.7095, -105.0913], 16, 84, 4.3),
+    1980: usgs(1980, [39.4693, -105.1660, 40.0044, -104.6069], 17, 36, 3.3),
+    1983: usgs(1983, [39.4828, -105.3073, 39.9523, -104.9415], 17, 184, 4.2),
+    1984: usgs(1984, [39.4859, -105.0515, 39.9618, -104.7041], 17, 56, 3.2),
+    1988: usgs(1988, [39.5525, -105.2170, 39.8620, -104.8044], 16, 147, 2.7),
+    1991: usgs(1991, [39.5702, -105.0650, 39.8490, -104.7993], 17, 36, 1.9),
+  };
+
+  /* USGS orthophotos, on coordinates as published (from EarthExplorer): the
+     1999 and 1993-94 digital orthophoto quarter quads (DOQ), 1 m, black and
+     white, made from NAPP photos; 1993-94 is one set produced in 1998, 17
+     quarter quads from NAPP of June 1993 and three dated 23 September 1994
+     (Fort Logan NE and SE, Commerce City SW), so it is one year here. And
+     DRCOG's own April 2002 orthoimagery at 0.3 m in colour, which USGS holds
+     as High Resolution Orthoimagery: with it 2002 draws across central
+     Denver, not only in Arapahoe County. Packed and read like the years above
+     (ortho-<year>.pmtiles). */
+  const ortho = (folder, cover, maxZoom, res, credit, src, deep) => ({
+    kind: 'xyz', pm: pmFiles('ortho-' + folder, deep), minZoom: 10, maxZoom, cover, res,
+    src, credit, area: 'central Denver', home: USGS_HOME,
+  });
+  const O = {
+    1993: ortho(1993, [39.5591, -105.1309, 39.8170, -104.8068], 17, 39, 'USGS', 'orthophoto quarter quads, 1 m, black and white'),
+    1994: ortho(1994, [39.6205, -105.0677, 39.8170, -104.9332], 17, 39, 'USGS', 'orthophoto quarter quads, 1 m, black and white'),
+    1999: ortho(1999, [39.5591, -105.1309, 39.8170, -104.8068], 17, 39, 'USGS', 'orthophoto quarter quads, 1 m, black and white'),
+    2002: ortho(2002, [39.6099, -105.1117, 39.8138, -104.8480], 18, 12, 'DRCOG', 'orthoimagery, April 2002, 0.3 m colour, via USGS', 18),
+  };
+
   /* How the archive GeoTIFFs are laid out inside, for the cost estimate before
      a read starts (measured 2026-09-07, downtown tiles; js/tiffwindow.js reads
      the real directory and does not depend on this):
@@ -116,22 +179,38 @@
     2008: { archive: 'sid', providers: [arapahoe(9, ARAPAHOE_COUNTY, 6)] },
     2006: { archive: 'tif', layout: LAYOUT_2006, providers: [arapahoe(10, ARAPAHOE_COUNTY, 6)] },
     2004: { archive: 'tif', layout: LAYOUT_2004, providers: [arapahoe(11, ARAPAHOE_COUNTY, 6)] },
-    2002: { archive: 'jp2', providers: [arapahoe(12, [39.5444, -105.0731, 39.77, -104.2358], 6)] },
+    2002: { archive: 'jp2', providers: [O[2002], arapahoe(12, [39.5444, -105.0731, 39.77, -104.2358], 6)] },
     2000: { providers: [
       arapahoe(13, [39.5381, -105.0729, 39.7668, -103.6836], 12),
       boulder('color2000', [39.7068, -105.6975, 40.2634, -105.0525], 12, 'county aerial'),
     ] },
+    1999: { providers: [O[1999]] },
+    1993: { label: '1993–94', providers: [O[1993], O[1994]] },
     1998: { providers: [arapahoe(14, [39.563, -105.0548, 39.7432, -104.602], 12, '(black and white)')] },
+    1991: { providers: [U[1991]] },
+    1988: { providers: [U[1988]] },
+    1984: { providers: [U[1984]] },
+    1983: { providers: [U[1983]] },
     1990: { label: '1990s', providers: [smfr('1990_99', 'district aerial, 1990s')] },
-    1980: { label: '1980s', providers: [smfr('1980_89', 'district aerial, 1980s')] },
+    1980: { label: '1980s', providers: [U[1980], smfr('1980_89', 'district aerial, 1980s')] },
+    1979: { providers: [U[1979]] },
+    1978: { providers: [U[1978]] },
     1977: { providers: [boulder('AERIAL1977_1FT', [39.9103, -105.6684, 40.2652, -105.0449], 12, 'county aerial, 1 ft, black and white')] },
-    1970: { label: '1970s', providers: [smfr('1970_79', 'district aerial, 1970s')] },
+    1975: { providers: [U[1975]] },
+    1972: { providers: [U[1972]] },
+    1971: { providers: [U[1971]] },
+    1970: { label: '1970s', providers: [U[1970], smfr('1970_79', 'district aerial, 1970s')] },
+    1969: { providers: [U[1969]] },
+    1964: { providers: [U[1964]] },
+    1963: { providers: [U[1963]] },
     1960: { label: '1960s', providers: [smfr('1960_69', 'district aerial, 1960s')] },
     1953: { providers: [
+      U[1953],
       cdot('Englewood_and_Littleton_1953_Aerial', [39.5384, -105.1003, 39.6885, -104.912], 'Englewood and Littleton'),
       smfr('1953', 'district aerial, 1953'),
     ] },
     1948: { providers: [cdot('Boulder_1948_Aerial', [39.968, -105.313, 40.0542, -105.1974], 'Boulder')] },
+    1939: { providers: [U[1939]] },
     1933: { providers: [KING_1933] },
     1930: { providers: [cdot('Golden_1930_Aerial', [39.736, -105.2129, 39.747, -105.1975], 'downtown Golden')] },
   };
@@ -158,12 +237,20 @@
   };
 
   const isDrapp = (year) => 'archive' in SOURCES[year];
-  const label = (year) => SOURCES[year].label || String(year);
+  /* A decade cache's key reads as its decade ("1970s") only where no USGS
+     year covers the spot: there it is that year. `where` is set by the page
+     to read the middle of the map. */
+  const inside = (p, ll) => ll && ll[0] >= p.cover[0] && ll[0] <= p.cover[2] && ll[1] >= p.cover[1] && ll[1] <= p.cover[3];
+  const label = (year) => {
+    const s = SOURCES[year];
+    if (!s.label) return String(year);
+    const ll = api.where && api.where();
+    return (s.providers || []).some((p) => p.usgs && inside(p, ll)) ? String(year) : s.label;
+  };
 
   const STREAM_LABEL = 'DRCOG mosaic hosted by Sanborn';
   const ARCHIVE_LABEL = 'DRCOG archive tile on S3, read in the browser';
 
-  window.DRAPP = Object.assign(window.DRAPP || {}, {
-    sources: { SOURCES, YEARS, SAT, ESRI_IMAGERY, ESRI_CREDIT, INDEX, STREAM_LABEL, ARCHIVE_LABEL, isDrapp, label },
-  });
+  const api = { SOURCES, YEARS, SAT, ESRI_IMAGERY, ESRI_CREDIT, INDEX, STREAM_LABEL, ARCHIVE_LABEL, isDrapp, label, where: null };
+  window.DRAPP = Object.assign(window.DRAPP || {}, { sources: api });
 })();

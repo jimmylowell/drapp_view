@@ -25,17 +25,25 @@ panning/zooming should not kill bandwidth immediately."
 - **Top left:** one search box (address, place, or `lat, lon`), a locate button, and a
   short list of places to start when the box is empty.
 - **Top right:** Compare, Save, Link, About.
-- **Bottom:** the timeline. The year on show in large type, where it comes from and how
-  sharp it is, what the visit has downloaded, and one chip per year **that exists where
-  the map is centred**. A solid chip is instant. A dashed chip is a year that has to be
-  read out of DRCOG's archive for this view.
+- **Bottom:** the timeline, one row: back, play, forward, the year on show in large type
+  with where it comes from and how sharp it is, and what the visit has downloaded. The
+  year is a button that opens a list of the years **that exist where the map is
+  centred**, newest first, each with a small note of who serves it there (USGS, DRCOG,
+  DRCOG archive, a county) and how much ground one pixel covers there, as the source
+  records it (for a USGS year, the coarser of its middle frame's scan and its deepest tile). A year in dim type has to be read out of DRCOG's archive for
+  this view. (Was a row of chips, one per year; a list is shorter on a phone and has
+  room for the source.)
 - **Compare** splits the map with a draggable divider: side by side with the older year
   on the left, or stacked with the older year on top. A screen taller than it is wide
   (a phone held upright) opens stacked, so each half keeps the full width; the round
-  button on the divider turns it the other way for the rest of the visit. The year tag
+  button by the divider's handle turns it the other way for the rest of the visit. The
+  handle and that button sit at the end of the line, clear of the picture: at the top
+  side by side, at the right edge stacked. The year tags stay away from the line too:
+  side by side at the top corners, stacked at the far end of each half (the older at the
+  top, the newer just above the timeline). The year tag
   on each half says which half the timeline is driving, and under the year whose picture
-  it is.
-- **Satellite** is the last chip while comparing, and only then: Esri World Imagery as one
+  it is; a tap on a tag drives that half and opens the year list for it at once.
+- **Satellite** is in the year list while comparing, and only then: Esri World Imagery as one
   side, so DRAPP's detail can be set against a satellite base map. It is never a year on
   the timeline, never played, never saved (the imagery is Esri's). Its tag and the line
   under the year give the satellite, its own pixel and the day, read from Esri's records
@@ -53,11 +61,12 @@ panning/zooming should not kill bandwidth immediately."
 
 | | Years | How it arrives |
 |---|---|---|
-| **Tiles** | 2018–2026 region-wide (DRCOG's mosaics on Sanborn's server; 2026 is the interim mosaic). 1998–2026 inside Arapahoe County (the county's map service, one layer per flight). 1930–2000 where an agency has scans online. | An ordinary tile layer (`js/tiles.js`). Picking the year is instant. |
+| **Tiles** | 2018–2026 region-wide (DRCOG's mosaics on Sanborn's server; 2026 is the interim mosaic). 1998–2026 inside Arapahoe County (the county's map service, one layer per flight). 1930–2000 where an agency has scans online. 1939–1991, 1993–94, 1999 and 2002 around central Denver from USGS (below). | An ordinary tile layer (`js/tiles.js`). Picking the year is instant. |
 | **Reads** | 2004, 2006, 2010, 2012, 2014, 2016 everywhere outside Arapahoe County | No server renders these. The page reads the view out of DRCOG's raw GeoTIFFs with HTTP range requests (`js/tiffwindow.js`) and leaves it on the map as a patch. |
 
-2002 (JPEG 2000) and 2008 (MrSID) exist only as files a browser cannot open, so
-outside Arapahoe County they are not on the timeline.
+DRCOG's own 2002 (JPEG 2000) and 2008 (MrSID) files are in formats a browser cannot
+open. 2002 draws across central Denver from the copy USGS holds (below); 2008 is on
+the timeline only inside Arapahoe County.
 
 Whether a spot is inside Arapahoe County is asked of the county's own service: one
 16 px export, remembered per half-mile cell (`inArapahoe` in `js/app.js`). Its extent
@@ -133,9 +142,46 @@ Every source, its extent and its licence note are in `js/sources.js` and listed 
 *About* on the page. `npm run probe` checks the upstreams. None of them is a documented
 public API; if one dies its years drop off the timeline and the rest still draw.
 
+## The USGS years
+
+Nineteen years around central Denver come from the U.S. Geological Survey, downloaded
+from [EarthExplorer](https://earthexplorer.usgs.gov/) and tiled for this page.
+
+| Years | What USGS holds | What was done to it |
+|---|---|---|
+| 1939, 1953, 1963, 1964, 1969, 1970, 1971, 1972, 1975, 1978, 1979, 1980, 1983, 1984, 1988, 1991 | [Aerial photo single frames](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-aerial-photo-single-frames), NHAP and NAPP frames: scans of the film, with no map position of their own | Each frame placed by matching it against the USGS orthophotos of 1993 to 1999 and the years already placed, newest to oldest; a year's frames joined into one picture; cut into tiles |
+| 1993–94, 1999 | [Digital orthophoto quarter quads](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-digital-orthophoto-quadrangle-doqs), 1 m, black and white, on coordinates as published. 1993–94 is one set, each quad dated by its newest photo | Cut into tiles, nothing else |
+| 2002 | DRCOG's April 2002 orthoimagery, 0.3 m colour, which USGS holds as high resolution orthoimagery | Cut into tiles, nothing else |
+
+**The label rule.** A placed year is measured inference, not a record: nothing USGS
+publishes says where a frame's pixels fall on the ground. So wherever a placed year is
+named it reads "aerial photos, placed by matching, *n* m held out", where *n* is that
+year's error at its middle frame, in metres, measured at check points the fit was not
+given (1.9 m for 1991 to 4.3 m for 1979; each year's number is in `js/sources.js`). A
+frame over 8 m is left out. Nothing is filled in where no frame lies: the tile is
+transparent. The three years USGS already publishes on coordinates carry no such note.
+
+**Where the tiles are.** Each year's tiles (WebP, 256 px, zoom 10 to 17, 16 for the
+coarse scans, 18 for 2002) are packed into one [PMTiles](https://github.com/protomaps/PMTiles)
+file in our own Cloudflare R2 bucket, `drapp-tiles`, served at
+`drapp-tiles.myjimmycloud.com`. The page reads a tile as a slice of its year's file
+with an HTTP Range request (`pmBlob` in `js/tiles.js`, the vendored reader in
+`js/vendor/pmtiles.js`), through the same store and meter as every other tile. A cache
+rule on that address lets Cloudflare answer a slice it has served before. Cloudflare
+caches no file over 512 MB on the Free plan
+([default cache behaviour](https://developers.cloudflare.com/cache/concepts/default-cache-behavior/)),
+so 1970, 1971 and 2002 are two files each: every zoom but the deepest, and the deepest
+alone (`<name>-z17.pmtiles`, `-z18` for 2002). The bucket's CORS rule is
+`ci/r2-cors.json`. The files are made from the scans on the build machine; they are
+not in this repo.
+
+Where a USGS year and a neighbour's scan share a key (1953, 1970, 1980), USGS is tried
+first; a decade key reads as its year ("1970", not "1970s") where the USGS year covers
+the middle of the map.
+
 ## Denver itself between 1933 and 2000
 
-Central Denver has one year before DRAPP that a browser can draw: 1933, Jasper King's survey, [georeferenced by the City and County of Denver](https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver) (the tile service credits the City of Denver Open Data Catalog). Every pre-2000 layer on the timeline belongs to a neighbour, and
+Apart from the USGS years above, central Denver has one year before DRAPP that a browser can draw: 1933, Jasper King's survey, [georeferenced by the City and County of Denver](https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver) (the tile service credits the City of Denver Open Data Catalog). Every other pre-2000 layer on the timeline belongs to a neighbour, and
 each one answers central Denver with a 404 or a blank tile (checked 2026-11-13 at Union
 Station, City Park, Washington Park and Stapleton): South Metro Fire Rescue's decade
 caches stop at the district, Arapahoe County's 1998 and 2000 layers draw only inside the
@@ -143,12 +189,12 @@ county, and Boulder's and CDOT's scans are one county or one town each.
 
 The photographs exist. They are prints, film or files behind a login, not map tiles.
 
-| Source | What it holds for Denver | Why it is not on the timeline |
+| Source | What it holds for Denver | Where it stands |
 |---|---|---|
 | [Denver Public Library, *Aerial Imagery of Denver and Colorado*](https://history.denverlibrary.org/research/aerial-imagery-denver-and-colorado) | 1937 (Denver's edges only), 1960, 1966, 1969 (Adams County), 1970, 1972, 1971–1973 (statewide), 1974, 1988, 1993, and Landiscor atlases 1984–2003 | Prints, negatives and bound atlases in Special Collections, browsed in person. Only 1933 is online as tiles |
 | [The library's Time Traveler's Map](https://history.denverlibrary.org/maps/time-travelers/) (its layer list is [`Denver.json`](https://history.denverlibrary.org/maps/time-travelers/Denver.json)) | 1933 King, plus 1939, 1965, 1971, 1980 and 1994 USGS layers | The USGS layers are topographic maps, not photographs |
-| [USGS EROS: Digital Orthophoto Quadrangles](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-digital-orthophoto-quadrangle-doqs) | Orthophoto quadrangles at 1 m, black and white, colour or colour-infrared; which years cover Denver is unknown until searched with an account | Downloaded from [EarthExplorer](https://earthexplorer.usgs.gov/) as files; the download API ([`m2m.cr.usgs.gov`](https://m2m.cr.usgs.gov/)) refuses a request without a USGS account. No tile service. To be on the timeline they would have to be fetched with an account, cut into tiles and hosted for the page |
-| [USGS EROS: National Aerial Photography Program](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-national-aerial-photography-program-napp) and single frames | Frames | Unrectified single frames: placing them on the map would be our guess, not the record's |
+| [USGS EROS: Digital Orthophoto Quadrangles](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-digital-orthophoto-quadrangle-doqs) | Orthophoto quadrangles at 1 m, black and white, colour or colour-infrared; over Denver, 1993–94 and 1999 in black and white | On the timeline: fetched from [EarthExplorer](https://earthexplorer.usgs.gov/) with a USGS account, cut into tiles and hosted (*The USGS years*). USGS itself offers no tile service for them | for the page |
+| [USGS EROS: National Aerial Photography Program](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-aerial-photography-national-aerial-photography-program-napp) and single frames | Frames from 1939 to 1991 | On the timeline, placed by matching and labelled with each year's measured error (*The USGS years*) |
 | [The National Map download API](https://tnmaccess.nationalmap.gov/api/v1/datasets) | No orthoimagery over Denver before 2001; NAIP starts later | Nothing to show |
 | [USGS imagery map services](https://imagery.nationalmap.gov/arcgis/rest/services) | NAIP only | Nothing before 2000 |
 | [DRCOG data catalogue](https://data.drcog.org/data) | DRAPP, which starts in 2002 (the library's guide says so) | Nothing before 2002 |
@@ -162,9 +208,8 @@ The photographs exist. They are prints, film or files behind a login, not map ti
 | ArcGIS Online catalogue, searched by text and by a box over central Denver | Only the layers above | — |
 | [historicaerials.com](https://historicaerials.com/terms) | A commercial viewer | Its terms forbid displaying or redistributing the imagery |
 
-The one route found to more Denver years on the timeline is the USGS orthophoto
-quadrangles: a USGS account to fetch them, then tiles baked and hosted for the page.
-No other georeferenced public copy of Denver between 1934 and 2000 turned up.
+USGS is the one route found to Denver between 1934 and 2000, and it is taken. No
+other georeferenced public copy turned up; the years it lacks are in library prints.
 
 ## How to know it is right
 
@@ -173,4 +218,7 @@ No other georeferenced public copy of Denver between 1934 and 2000 turned up.
   nothing until release on a phone.
 - Picking 2014 downtown shows 2014 within a few seconds without another tap.
 - In Centennial every year from 1953 to 2026 is a solid chip.
+- At the Capitol, 2002, 1999, 1993–94, 1991, 1971 and 1939 each draw, and each placed
+  year's line reads "USGS · aerial photos, placed by matching, n m held out".
+- A second request for the same slice of a year's file answers `cf-cache-status: HIT`.
 - *Save → Every year here* downloads a zip that opens, one JPEG per year.

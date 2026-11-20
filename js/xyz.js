@@ -47,7 +47,11 @@
     const jobs = [];
     for (let ty = range.y0; ty <= range.y1; ty++) {
       for (let tx = range.x0; tx <= range.x1; tx++) {
-        jobs.push(imageserver.loadImage(tileUrl(p.url, range.z, tx, ty), signal, 30000).then((im) => {
+        /* A source kept as one file hands its tile over as bytes; any other is an image address. */
+        const tile = p.pm
+          ? DRAPP.tiles.pmBlob(p.pm, range.z, tx, ty, signal).then((b) => createImageBitmap(b))
+          : imageserver.loadImage(tileUrl(p.url, range.z, tx, ty), signal, 30000);
+        jobs.push(tile.then((im) => {
           mctx.drawImage(im, (tx - range.x0) * TILE, (ty - range.y0) * TILE);
           hits++;
         }, (e) => { if (e.name === 'AbortError') throw e; /* a missing tile is just no coverage there */ }));

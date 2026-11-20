@@ -163,7 +163,9 @@
       if (p.kind === 'map') {
         out.push({ kind: 'map', service: p.service, layer: p.layer, nativeFt: p.res / 12, maxNativeZoom: tiles.nativeZoom(p.res / 12), bounds: coverBounds(p), detectFlat: true, provider: p });
       } else {
-        out.push({ kind: 'xyz', service: p.url, tileSize: 256, minZoom: 9, maxNativeZoom: p.maxZoom, bounds: coverBounds(p), provider: p });
+        const o = { kind: 'xyz', service: p.url || '', tileSize: 256, minZoom: 9, maxNativeZoom: p.maxZoom, bounds: coverBounds(p), provider: p };
+        if (p.pm) { o.pm = p.pm; o.minNativeZoom = p.minZoom; }     // one file a year; below its shallowest zoom that zoom is shown smaller
+        out.push(o);
       }
     }
     return out;
@@ -492,46 +494,95 @@
     else { state.read = null; state.wantRead = state.sides[state.active].year; assess(); }
   });
 
-  /* ---------- the timeline ---------- */
-  const chips = $('#chips');
+  /* ---------- the timeline: the year, and a list of the years here ----------
+     The year at the bottom is a button; it drops a list up, newest first,
+     each year with a small note of where its picture comes from at this spot. */
+  const yearPick = $('#year-pick'), list = $('#years');
   let chipSig = '';
+  /* Who serves a year at a spot, in a few words: the provider that would draw
+     it (the first whose box holds the spot), or DRCOG's mosaic or archive. */
+  function sourceNote(y, h, lat, lon) {
+    const src = S[y];
+    if (src.sat) return 'Esri World Imagery';
+    if (src.stream) return src.interim ? 'DRCOG, interim mosaic' : 'DRCOG';
+    if (h === 'read') return 'DRCOG archive';
+    const p = (src.providers || []).find((q) => providerHere(q, lat, lon));
+    return p ? p.credit : '';
+  }
+  /* How fine the picture is there: the ground one pixel covers, as the source
+     records it (a provider's `res`, in inches; DRCOG's mosaic grid; the archive
+     layout). The satellite's varies from spot to spot; its tag reads it. */
+  function pixelNote(y, h, lat, lon) {
+    const src = S[y];
+    if (src.sat) return '';
+    if (src.stream) return resLabel(SRC_RES);
+    if (h === 'read') return src.layout ? resLabel(src.layout.res) : '';
+    const p = (src.providers || []).find((q) => providerHere(q, lat, lon));
+    return p && p.res ? resLabel(p.res / 12) : '';
+  }
   function paintTimeline() {
     const years = yearsHere();
     const sel = state.sides.map((s) => s.year);
     for (const y of sel) if (!years.includes(y)) years.push(y);
-    years.sort((a, b) => a - b);
+    years.sort((a, b) => b - a);
     const c = map.getCenter(), vb = viewBox();
-    const kinds = years.map((y) => {
-      const h = how(y, c.lat, c.lng);
+    const hows = years.map((y) => how(y, c.lat, c.lng));
+    const kinds = years.map((y, n) => {
+      const h = hows[n];
       if (!h) return 'off';
       if (h === 'read') return patchUnder(y, vb) ? 'got' : 'need';
       return 'now';
     });
-    const sig = years.join() + '|' + kinds.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
+    const notes = years.map((y, n) => sourceNote(y, hows[n], c.lat, c.lng));
+    const pxs = years.map((y, n) => pixelNote(y, hows[n], c.lat, c.lng));
+    const sig = years.map(sources.label).join() + '|' + kinds.join() + '|' + notes.join() + '|' + pxs.join() + '|' + sel.join() + '|' + state.active + '|' + (state.read && state.read.ctl ? state.read.year : '');
     if (sig === chipSig) return;
     chipSig = sig;
-    chips.innerHTML = '';
-    let prev = null;
+    list.innerHTML = '';
+    const head = el('div', 'years-head');
+    head.setAttribute('aria-hidden', 'true');
+    head.append(el('span', '', 'Year and source here'), el('span', '', 'one pixel'));
+    list.appendChild(head);
     years.forEach((y, n) => {
-      if (prev != null && y - prev > 4) chips.appendChild(el('i', 'gap'));
-      prev = y;
-      const b = el('button', 'chip ' + kinds[n], sources.label(y));
-      b.type = 'button'; b.dataset.year = y;
+      const b = el('button', 'opt ' + kinds[n]);
+      b.type = 'button'; b.dataset.year = y; b.setAttribute('role', 'option');
+      b.append(el('b', '', sources.label(y)), el('small', 'who', notes[n]), el('small', 'px', pxs[n]));
+      if (pxs[n]) b.setAttribute('aria-label', `${sources.label(y)}, ${notes[n]}, ${pxs[n]} a pixel`);
       const side = sel.indexOf(y);
-      if (y === sel[state.active]) { b.classList.add('on'); b.setAttribute('aria-current', 'true'); }
+      b.setAttribute('aria-selected', String(y === sel[state.active]));
+      if (y === sel[state.active]) b.classList.add('on');
       else if (side >= 0) b.classList.add('other');
       if (state.read && state.read.ctl && state.read.year === y) b.classList.add('busy');
       if (y === SAT) b.classList.add('sat');
       b.title = y === SAT ? 'Today\'s satellite picture (Esri World Imagery), to set against a DRAPP year' : kinds[n] === 'need' ? `${sources.label(y)}: read from DRCOG's archive for the view on screen`
         : kinds[n] === 'off' ? `${sources.label(y)} has nothing here` : sources.label(y);
-      chips.appendChild(b);
+      list.appendChild(b);
     });
-    const on = $('.chip.on', chips);
-    if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
-  chips.addEventListener('click', (ev) => {
-    const b = ev.target.closest('.chip');
-    if (b) { stopPlay(); pick(+b.dataset.year); }
+  function showYears(open) {
+    list.hidden = !open;
+    yearPick.setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    chipSig = ''; paintTimeline();
+    const on = $('.opt.on', list) || $('.opt', list);
+    if (on) { if (on.scrollIntoView) on.scrollIntoView({ block: 'center' }); on.focus({ preventScroll: true }); }
+  }
+  yearPick.addEventListener('click', () => showYears(list.hidden));
+  list.addEventListener('click', (ev) => {
+    const b = ev.target.closest('.opt');
+    if (!b) return;
+    stopPlay(); pick(+b.dataset.year); showYears(false); yearPick.focus();
+  });
+  list.addEventListener('keydown', (ev) => {
+    const opts = [...list.querySelectorAll('.opt')], at = opts.indexOf(document.activeElement);
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      const n = Math.max(0, Math.min(opts.length - 1, at + (ev.key === 'ArrowDown' ? 1 : -1)));
+      if (opts[n]) opts[n].focus();
+    } else if (ev.key === 'Escape') { ev.preventDefault(); showYears(false); yearPick.focus(); }
+  });
+  document.addEventListener('pointerdown', (ev) => {
+    if (!list.hidden && !ev.target.closest('#years, #year-pick, .tag')) showYears(false);
   });
 
   function pick(year, quiet) {
@@ -702,13 +753,19 @@
     const at = Math.round((stack ? size.y : size.x) * state.split);
     divider.style.left = stack ? '' : at + 'px';
     divider.style.top = stack ? at + 'px' : '';
-    /* The flip button sits on the divider line, just past its handle. */
-    flip.style.left = (stack ? size.x / 2 + 50 : at) + 'px';
-    flip.style.top = (stack ? at : size.y / 2 + 50) + 'px';
+    /* The handle sits at the end of the line, clear of the picture: at the top
+       side by side, at the right edge stacked. The flip button is just past it. */
+    if (comparing) {
+      const h = $('span', divider).getBoundingClientRect(), m = map.getContainer().getBoundingClientRect();
+      flip.style.left = (stack ? h.left - m.left - 8 - 17 : at) + 'px';
+      flip.style.top = (stack ? at : h.bottom - m.top + 8 + 17) + 'px';
+    }
     flip.textContent = stack ? '⇄' : '⇅';
     flip.title = stack ? 'Show the two years side by side' : 'Show the two years one above the other';
     flip.setAttribute('aria-label', flip.title);
-    $('#tags').style.top = stack ? at + 'px' : '';
+    /* Stacked, each year's tag sits at the far end of its own half, away from
+       the line: the older at the top, the newer just above the timeline. */
+    $('#tag-1').style.bottom = comparing && stack ? Math.round(window.innerHeight - $('.dock').getBoundingClientRect().top + 10) + 'px' : '';
     const nw = map.containerPointToLayerPoint([0, 0]), se = map.containerPointToLayerPoint(size);
     const cut = (stack ? nw.y : nw.x) + at;
     for (const v of views.values()) {
@@ -964,9 +1021,14 @@
   $('#tags').addEventListener('click', (ev) => {
     const t = ev.target.closest('.tag');
     if (!t) return;
-    state.active = +t.dataset.side;
+    /* A tag makes its side the one the timeline drives and opens the year list
+       for it at once; the same tag again closes the list. */
+    const side = +t.dataset.side;
+    if (!list.hidden && state.active === side) { showYears(false); return; }
+    state.active = side;
     chipSig = '';
     assess(); paintAll();
+    showYears(true);
   });
   $('#save').addEventListener('click', () => { $('#save-menu').hidden = !$('#save-menu').hidden; });
   $('#save-one').addEventListener('click', () => { $('#save-menu').hidden = true; saveOne(); });
@@ -1006,7 +1068,7 @@
     $('#usage').textContent = 'Kept imagery cleared from this browser.';
   });
   document.addEventListener('keydown', (ev) => {
-    if (ev.target.closest('input, textarea, dialog')) return;
+    if (ev.target.closest('input, textarea, dialog, #years')) return;
     if (ev.key === 'ArrowLeft') { stopPlay(); step(-1); }
     else if (ev.key === 'ArrowRight') { stopPlay(); step(1); }
     else if (ev.key === ' ') { ev.preventDefault(); togglePlay(); }
@@ -1032,6 +1094,7 @@
     const h = readHash();
     map = L.map('map', { zoomControl: false, attributionControl: false, minZoom: 9, maxZoom: 22, zoomSnap: 1, wheelPxPerZoomLevel: 90, maxBounds: regionLL.pad(1.5), maxBoundsViscosity: 0.6 })
       .setView([h.lat ?? HOME.lat, h.lon ?? HOME.lon], h.z ?? HOME.z);
+    sources.where = () => { const c = map.getCenter(); return [c.lat, c.lng]; };   // a decade key reads as its year where a USGS year covers the spot
     if (!L.Browser.mobile) L.control.zoom({ position: 'bottomright' }).addTo(map);
     map.createPane('base').style.zIndex = 200;
     map.createPane('context').style.zIndex = 300;
