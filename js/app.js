@@ -240,10 +240,15 @@
     if (v.on) return;
     v.on = true;
     if (!v.layers) {
-      v.layers = layerSpecs(v.year).map((o) => {
-        const l = new tiles.Layer(Object.assign({ pane: v.paneName }, o));
+      /* A year's first source is the picture wherever it has one: it is drawn
+         on top, and each later source fills only where the earlier ones are
+         empty, never asked for a tile they cover. */
+      const specs = layerSpecs(v.year);
+      v.layers = [];
+      specs.forEach((o, i) => {
+        const l = new tiles.Layer(Object.assign({ pane: v.paneName, zIndex: specs.length - i, above: v.layers.slice() }, o));
         l.on('load tileerror', assessSoon);
-        return l;
+        v.layers.push(l);
       });
     }
     for (const l of v.layers) l.addTo(map);
@@ -329,14 +334,24 @@
     const vb = viewBox(), bounds = map.getBounds();
     const cov = { good: 0, flat: 0, failed: 0, pending: 0 };
     let wide = false, whole = false, used = null;
+    /* The source named is the one drawn at the middle of the map: the first
+       with a picture there, or else the first with any picture in view. */
+    const mid = map.getCenter();
+    for (const l of v.layers) if (l.options.bounds.contains(mid) && l.drawsAt(mid)) { used = l; break; }
+    /* A tile file's tile with no photo (USGS between frames) is a gap a later
+       source may fill: it counts as blank only as far as later sources leave it. */
+    let empty = 0, filled = 0;
     for (const l of v.layers) {
       if (!l.options.bounds.intersects(bounds)) continue;
       if (l.options.wide) wide = true;
       if (l.options.bounds.contains(bounds)) whole = true;
       const c = l.coverage();
+      if (empty) filled += c.good;
+      empty += c.empty;
       for (const k in cov) cov[k] += c[k];
       if (c.good && !used) used = l;
     }
+    cov.flat += Math.max(0, empty - filled);
     /* A view that runs past the year's real edge is not filled, whatever the service's box says. */
     if (whole && !wide && !viewInsideEdge(s.year, bounds)) whole = false;
     const patch = patchUnder(s.year, vb);
