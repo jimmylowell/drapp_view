@@ -157,6 +157,36 @@
     } catch (e) { return false; }
   }
 
+  /* Is a loaded tile solid picture to its edges (no transparent part)? A USGS
+     tile is transparent where no frame lies. Read once a tile, on a 32 px copy. */
+  const solidProbe = document.createElement('canvas');
+  solidProbe.width = solidProbe.height = 32;
+  function isSolid(img) {
+    if (img._solid != null) return img._solid;
+    try {
+      const c = solidProbe.getContext('2d', { willReadFrequently: true });
+      c.clearRect(0, 0, 32, 32);
+      c.drawImage(img, 0, 0, 32, 32);
+      const d = c.getImageData(0, 0, 32, 32).data;
+      let ok = true;
+      for (let i = 3; i < d.length; i += 4) if (d[i] < 250) { ok = false; break; }
+      img._solid = ok;
+    } catch (e) { img._solid = false; }
+    return img._solid;
+  }
+  /* The alpha of one pixel of a loaded tile, at fractions fx, fy across it. */
+  const dotProbe = document.createElement('canvas');
+  dotProbe.width = dotProbe.height = 1;
+  function alphaAt(img, fx, fy) {
+    try {
+      const c = dotProbe.getContext('2d', { willReadFrequently: true });
+      c.clearRect(0, 0, 1, 1);
+      const w = img.naturalWidth || 256, h = img.naturalHeight || 256;
+      c.drawImage(img, Math.min(w - 1, Math.floor(fx * w)), Math.min(h - 1, Math.floor(fy * h)), 1, 1, 0, 0, 1, 1);
+      return c.getImageData(0, 0, 1, 1).data[3];
+    } catch (e) { return 255; }
+  }
+
   /* Image pixels for a tile `sz` Mercator metres wide, middle at Mercator y
      `my`, drawn on `css` CSS pixels at `density` image pixels each: never
      finer on the ground than the source's `nativeFt`. */
@@ -180,6 +210,7 @@
       kind: 'image',        // 'image' ImageServer exportImage · 'map' MapServer export · 'xyz' cached z/y/x tiles
       service: '', layer: null, nativeFt: 0, detectFlat: false,
       pm: null,             // an 'xyz' source whose tiles are in one file: { url, deep: { zoom, url } | null }
+      above: null,          // the year's earlier sources, drawn over this one: a tile of this one is not asked for where one of them is solid picture
     },
 
     /* Mercator box of a tile. With 512 px tiles Leaflet's coords are one zoom
@@ -231,19 +262,28 @@
       img.decoding = 'async';
       const ctl = new AbortController();
       img._ctl = ctl; img._coords = coords;
+      /* Settles once this tile is decided (a picture, blank, failed or dropped),
+         for a later source of the same year waiting to know if it is needed. */
+      img._settled = new Promise((res) => { img._settle = res; });
+      const finish = (err) => { img._settle(); done(err, img); };
       const run = async () => {
         try {
+          if (await this.coveredAbove(coords, ctl.signal)) {
+            img._covered = true; img.style.visibility = 'hidden';
+            return finish(null);
+          }
           const b = await this.fetchTile(coords, false, ctl.signal);
           img.onload = () => {
             if (this.options.detectFlat && isFlat(img)) { img._flat = true; img.style.visibility = 'hidden'; }
             img._ok = true;
-            done(null, img);
+            finish(null);
           };
-          img.onerror = () => done(new Error('tile did not decode'), img);
+          img.onerror = () => { img._failed = true; finish(new Error('tile did not decode')); };
           img._url = URL.createObjectURL(b);
           img.src = img._url;
         } catch (e) {
-          if (e.name !== 'AbortError') { img._failed = true; done(e, img); }
+          /* A tile file with no tile here has no photo here: empty, not failed. */
+          if (e.name !== 'AbortError') { if (e.message === 'no tile') img._empty = true; else img._failed = true; finish(e); }
         }
       };
       img._timer = setTimeout(run, this.options.delay);
@@ -261,8 +301,53 @@
       L.GridLayer.prototype.onRemove.call(this, map);
       this.off('tileunload', this._drop, this);
     },
+    /* Does one of the earlier sources (`above`) have solid picture over the
+       whole of tile `coords`? Waits for those tiles to be decided first. */
+    async coveredAbove(coords, signal) {
+      const above = this.options.above;
+      if (!above || !above.length || !this._map) return false;
+      const map = this._map, ts = this.getTileSize();
+      const nw = map.unproject([coords.x * ts.x + 0.5, coords.y * ts.y + 0.5], coords.z);
+      const se = map.unproject([(coords.x + 1) * ts.x - 0.5, (coords.y + 1) * ts.y - 0.5], coords.z);
+      for (const l of above) {
+        if (!l._map || l._tileZoom == null) continue;
+        const z = l._tileZoom, lts = l.getTileSize();
+        const a = map.project(nw, z), b = map.project(se, z);
+        const els = [];
+        let all = true;
+        for (let x = Math.floor(a.x / lts.x); x <= Math.floor(b.x / lts.x) && all; x++) {
+          for (let y = Math.floor(a.y / lts.y); y <= Math.floor(b.y / lts.y); y++) {
+            const t = l._tiles[`${x}:${y}:${z}`];
+            if (!t) { all = false; break; }
+            els.push(t.el);
+          }
+        }
+        if (!all || !els.length) continue;
+        await Promise.all(els.map((el) => el._settled));
+        if (signal.aborted) throw new DOMException('aborted', 'AbortError');
+        if (els.every((el) => el._ok && !el._flat && !el._covered && isSolid(el))) return true;
+      }
+      return false;
+    },
+
+    /* Does this source draw a picture at `latlng` right now? true, false, or
+       null while the tile there is still on its way. */
+    drawsAt(latlng) {
+      if (!this._map || this._tileZoom == null) return null;
+      const z = this._tileZoom, ts = this.getTileSize();
+      const p = this._map.project(latlng, z);
+      const x = Math.floor(p.x / ts.x), y = Math.floor(p.y / ts.y);
+      const t = this._tiles[`${x}:${y}:${z}`];
+      if (!t) return false;
+      const el = t.el;
+      if (el._covered || el._flat || el._failed || el._empty) return false;
+      if (!el._ok) return null;
+      return alphaAt(el, p.x / ts.x - x, p.y / ts.y - y) > 0;
+    },
+
     _drop(ev) {
       const img = ev.tile;
+      if (img._settle) img._settle();
       clearTimeout(img._timer);
       if (img._ctl) img._ctl.abort();
       if (img._url) { URL.revokeObjectURL(img._url); img._url = null; }
@@ -286,9 +371,10 @@
     /* How the view is doing: tiles with a picture, tiles the service answered
        blank, tiles that failed, and tiles still on their way. */
     coverage() {
-      const out = { good: 0, flat: 0, failed: 0, pending: 0 };
+      const out = { good: 0, flat: 0, failed: 0, pending: 0, empty: 0 };
       for (const t of this.inView()) {
-        if (t.el._flat) out.flat++; else if (t.el._ok) out.good++; else if (t.el._failed) out.failed++; else out.pending++;
+        if (t.el._covered) continue;
+        if (t.el._flat) out.flat++; else if (t.el._ok) out.good++; else if (t.el._empty) out.empty++; else if (t.el._failed) out.failed++; else out.pending++;
       }
       return out;
     },
