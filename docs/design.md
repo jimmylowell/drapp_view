@@ -179,16 +179,27 @@ alone (`<name>-z17.pmtiles`, `-z18` for 2002). The bucket's CORS rule is
 `ci/r2-cors.json`. The files are made from the scans on the build machine; they are
 not in this repo.
 
-**Where a year ends.** Each of these years has a known edge, read off its own tiles
-(wherever a zoom-13 tile has any picture; `data/usgs-outline.json`, simplified to about
-30 m). It is drawn as a dashed line in the year's colour of accent, and when the edge is
-on screen a note says what the line is and what lies past it: today's picture, dimmed,
-or another source's picture of the same year (2002, 1953, 1970, 1980). The other
-sources publish only a box, which is not their real edge, so they get no line.
-
 Where a USGS year and a neighbour's scan share a key (1953, 1970, 1980), USGS is tried
 first; a decade key reads as its year ("1970", not "1970s") where the USGS year covers
 the middle of the map.
+
+## Where a year ends
+
+Every year has a real edge, and it is drawn as a dashed line in the accent colour. The
+edge is **where the year's sources actually have picture**, not the box a service
+publishes: `scripts/bake_outlines.py` asks each source (our own tile files, the cached
+tile services, the counties' map services, DRCOG's mosaics, and the archive's index)
+where it has picture, lays the answers on one grid and joins them, so a year has one
+edge whatever its sources are. The result is `data/outlines.json`, a few rings of
+latitude and longitude a year, fetched once when a year is first shown.
+
+When the edge is on screen a note says what the line is and what lies past it (today's
+picture, dimmed); while comparing, the note stays away and the line shows on its own
+side. The line holds nothing in: the map moves freely across it.
+
+The edge is as good as the grid it was read on: about 10 m for our own tiles, 15 to
+30 m for the tile and map services, 60 to 100 m for the mosaics. A county's map service answers white
+where it has no picture, so there the edge is where the white begins.
 
 ## Denver itself between 1933 and 2000
 

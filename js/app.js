@@ -184,25 +184,24 @@
     return v;
   }
   /* ---------- where a year ends ----------
-     A year kept as our own tile files has a known edge: data/usgs-outline.json
-     holds it, read off the tiles themselves (wherever a zoom-13 tile has any
-     picture). It is drawn as a dashed line in the year's own pane, so it fades
-     and splits with the year. Other sources publish only a box, which is not
-     their real edge, so they get no line. */
+     data/outlines.json holds each year's real edge: where its sources actually
+     have picture, read off their own tiles and exports and joined into one
+     shape a year (scripts/bake_outlines.py). No service's published box is
+     used. It is drawn as a dashed line in the year's own pane, so it fades and
+     splits with the year. The line holds nothing in: the map moves freely
+     across it. */
   let outlineP = null;
-  const outlines = () => outlineP || (outlineP = fetch('data/usgs-outline.json?v=20261120').then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
-  const edgeKey = (p) => (p && p.pm ? p.pm.url.replace(/^.*\//, '').replace(/\.pmtiles$/, '') : null);
-  const hasEdge = (year) => (S[year].providers || []).some((p) => p.pm);
+  const outlines = () => outlineP || (outlineP = fetch('data/outlines.json?v=20261120').then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
+  let edgeYears = null;
+  outlines().then((o) => { edgeYears = new Set(Object.keys(o).filter((y) => o[y].length).map(Number)); });
+  const hasEdge = (year) => !!edgeYears && edgeYears.has(year);
   function drawEdges(v) {
     if (v.edges) { for (const e of v.edges) e.addTo(map); return; }
     v.edges = [];
-    const keys = (S[v.year].providers || []).map(edgeKey).filter(Boolean);
-    if (!keys.length) return;
+    if (S[v.year].sat) return;
     outlines().then((o) => {
       if (v.edges.length) return;
-      for (const k of keys) {
-        for (const ring of o[k] || []) v.edges.push(L.polyline(ring, { pane: v.paneName, className: 'edge', color: '#e8c36a', weight: 1.5, opacity: 0.95, dashArray: '7 5', interactive: false }));
-      }
+      for (const ring of o[v.year] || []) v.edges.push(L.polyline(ring, { pane: v.paneName, className: 'edge', color: '#e8c36a', weight: 1.5, opacity: 0.95, dashArray: '7 5', interactive: false }));
       if (v.on) for (const e of v.edges) e.addTo(map);
     });
   }
@@ -471,15 +470,14 @@
     if (!st.canRead) {
       if (have) return set('');
       /* The edge of the year is on screen: say what the dashed line is and what lies past it. */
+      /* The edge of the year is on screen: say what the dashed line is and what lies past it.
+         While comparing the line speaks for itself: the note would sit on a year tag. */
       if (st.mode === 'partial') {
-        if (!hasEdge(s.year) || state.sides.length === 2) return set('');   // while comparing the line speaks for itself: the note would sit on a year tag
-        /* One source: past the line there is no more of the year. Several: the line is
-           the edge of ours only, and another's picture may carry on beyond it. */
-        const ps = S[s.year].providers, ours = ps.find((p) => p.pm), rest = [...new Set(ps.filter((p) => !p.pm).map((p) => p.credit))];
-        const words = rest.length
-          ? `The dashed line is the edge of ${ours.credit}'s ${label}. ${rest.join(' and ')} may carry on past it.`
-          : `${label}'s photos end at the dashed line. Past it: ${state.contextYear}, dimmed.`;
-        return set(`<i class="dash"></i><span>${words}</span>`, 'note');
+        if (!hasEdge(s.year) || state.sides.length === 2) return set('');
+        /* Our own tiles are clear past their edge, so today's picture shows there; a
+           service may paint its own blank white or black instead, so nothing is promised. */
+        const clear = (S[s.year].providers || []).every((p) => p.pm) && !S[s.year].stream;
+        return set(`<i class="dash"></i><span>${label} photos end at the dashed line.${clear ? ` Past it: ${state.contextYear}, dimmed.` : ''}</span>`, 'note');
       }
       const areas = [...new Set((S[s.year].providers || []).map((p) => p.area))];
       const why = S[s.year].archive === 'jp2' || S[s.year].archive === 'sid'
