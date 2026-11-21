@@ -184,26 +184,56 @@
     return v;
   }
   /* ---------- where a year ends ----------
-     data/outlines.json holds each year's real edge: where its sources actually
-     have picture, read off their own tiles and exports and joined into one
-     shape a year (scripts/bake_outlines.py). No service's published box is
-     used. It is drawn as a dashed line in the year's own pane, so it fades and
-     splits with the year. The line holds nothing in: the map moves freely
-     across it. */
-  let outlineP = null;
-  const outlines = () => outlineP || (outlineP = fetch('data/outlines.json?v=20261120').then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
-  let edgeYears = null;
-  outlines().then((o) => { edgeYears = new Set(Object.keys(o).filter((y) => o[y].length).map(Number)); });
-  const hasEdge = (year) => !!edgeYears && edgeYears.has(year);
+     data/outlines.json (scripts/bake_outlines.py) holds two things, both read
+     off the sources' own pictures, never off a box a service publishes:
+       edge  each year's real edge, its sources joined into one shape. Drawn as
+             a dashed line in the year's own pane, so it fades and splits with
+             the year. The line holds nothing in: the map moves freely across it.
+       cut   each outside service's own shape. Its layer is cut along it, so the
+             flat white or black a service paints where it has no picture never
+             shows, and today's picture, dimmed, shows there instead. */
+  let outlineP = null, edgeData = null;
+  const outlines = () => outlineP || (outlineP = fetch('data/outlines.json?v=20261120b')
+    .then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
+    .then((o) => (edgeData = { edge: o.edge || {}, cut: o.cut || {} })));
+  const hasEdge = (year) => !!(edgeData && (edgeData.edge[year] || []).length);
   function drawEdges(v) {
-    if (v.edges) { for (const e of v.edges) e.addTo(map); return; }
+    if (v.edges) { for (const e of v.edges) e.addTo(map); applyCuts(v); return; }
     v.edges = [];
     if (S[v.year].sat) return;
     outlines().then((o) => {
       if (v.edges.length) return;
-      for (const ring of o[v.year] || []) v.edges.push(L.polyline(ring, { pane: v.paneName, className: 'edge', color: '#e8c36a', weight: 1.5, opacity: 0.95, dashArray: '7 5', interactive: false }));
-      if (v.on) for (const e of v.edges) e.addTo(map);
+      for (const ring of o.edge[v.year] || []) v.edges.push(L.polyline(ring, { pane: v.paneName, className: 'edge', color: '#e8c36a', weight: 1.5, opacity: 0.95, dashArray: '7 5', interactive: false }));
+      if (v.on) { for (const e of v.edges) e.addTo(map); applyCuts(v); assessSoon(); }
     });
+  }
+  /* A service's layer, cut along its own shape. The shape is in map-layer
+     pixels, which hold while the map is dragged and change when it zooms. */
+  function applyCuts(v) {
+    if (!edgeData || !v.on || !v.layers) return;
+    const cuts = edgeData.cut[v.year], ps = S[v.year].providers || [];
+    if (!cuts) return;
+    for (const l of v.layers) {
+      const rings = cuts[ps.indexOf(l.options.provider)], box = l.getContainer && l.getContainer();
+      if (!rings || !box) continue;
+      box.style.clipPath = rings.length ? 'path("' + rings.map((r) => 'M' + r.map((ll) => { const q = map.latLngToLayerPoint(ll); return Math.round(q.x) + ' ' + Math.round(q.y); }).join('L') + 'Z').join('') + '")' : 'inset(50%)';
+    }
+  }
+  /* Is the whole view inside the year's edge? Nine points of it are asked. */
+  function insideRing(ring, lat, lon) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [yi, xi] = ring[i], [yj, xj] = ring[j];
+      if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function viewInsideEdge(year, bounds) {
+    const rings = edgeData && edgeData.edge[year];
+    if (!rings || !rings.length) return true;
+    const s = bounds.getSouth(), n = bounds.getNorth(), w = bounds.getWest(), e = bounds.getEast();
+    for (const lat of [s, (s + n) / 2, n]) for (const lon of [w, (w + e) / 2, e]) if (!rings.some((r) => insideRing(r, lat, lon))) return false;
+    return true;
   }
 
   function mount(v) {
@@ -307,6 +337,8 @@
       for (const k in cov) cov[k] += c[k];
       if (c.good && !used) used = l;
     }
+    /* A view that runs past the year's real edge is not filled, whatever the service's box says. */
+    if (whole && !wide && !viewInsideEdge(s.year, bounds)) whole = false;
     const patch = patchUnder(s.year, vb);
     const reading = state.read && state.read.year === s.year;
     const c = map.getCenter();
@@ -474,10 +506,7 @@
          While comparing the line speaks for itself: the note would sit on a year tag. */
       if (st.mode === 'partial') {
         if (!hasEdge(s.year) || state.sides.length === 2) return set('');
-        /* Our own tiles are clear past their edge, so today's picture shows there; a
-           service may paint its own blank white or black instead, so nothing is promised. */
-        const clear = (S[s.year].providers || []).every((p) => p.pm) && !S[s.year].stream;
-        return set(`<i class="dash"></i><span>${label} photos end at the dashed line.${clear ? ` Past it: ${state.contextYear}, dimmed.` : ''}</span>`, 'note');
+        return set(`<i class="dash"></i><span>${label} photos end at the dashed line. Past it: ${state.contextYear}, dimmed.</span>`, 'note');
       }
       const areas = [...new Set((S[s.year].providers || []).map((p) => p.area))];
       const why = S[s.year].archive === 'jp2' || S[s.year].archive === 'sid'
@@ -1188,6 +1217,7 @@
 
     map.on('move', () => { if (state.sides.length === 2) clipSides(); });
     map.on('zoomend', () => redrawAll());
+    map.on('zoomend viewreset', () => { for (const v of views.values()) applyCuts(v); });
     map.on('moveend', () => { clipSides(); assessSoon(); writeHash(); restSoon(); });
     map.on('movestart', () => clearTimeout(sharpTimer));
     map.on('resize', () => { clipSides(); assessSoon(); });

@@ -193,6 +193,13 @@ where it has picture, lays the answers on one grid and joins them, so a year has
 edge whatever its sources are. The result is `data/outlines.json`, a few rings of
 latitude and longitude a year, fetched once when a year is first shown.
 
+**No blank fill.** A county's map service paints white where it has no picture, and the
+1933 tiles paint black. The same file holds each outside service's own shape, shrunk by
+a pixel or two, and its layer is cut along it (a CSS clip in map pixels, set again when
+the zoom changes), so the fill never shows and today's picture, dimmed, shows instead.
+A view that runs past a year's edge counts as not filled, which is what brings that
+picture up underneath.
+
 When the edge is on screen a note says what the line is and what lies past it (today's
 picture, dimmed); while comparing, the note stays away and the line shows on its own
 side. The line holds nothing in: the map moves freely across it.

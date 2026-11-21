@@ -11,13 +11,15 @@ For every year on the timeline, each of its sources (js/sources.js) is asked whe
   DRCOG's mosaics      an export of the region (60 m a pixel): picture where it is not transparent
   DRCOG's archive      the tile boxes in data/index/<year>.json
 
-The answers are laid on one grid and joined, so a year gets one edge whatever its sources are. Edges are simplified
+The answers are laid on one grid and joined, so a year gets one edge whatever its sources are ("edge"). Each outside
+service's own picture is kept too, shrunk by one or two pixels ("cut"): the page cuts that service's layer along it, so the
+flat white or black the service paints where it has no picture never shows. Edges are simplified
 (about 1.5 grid pixels), specks under 0.2 km2 are dropped, only outer edges are kept, and each ring is a closed line of [lat, lon] to 5 decimals.
 No box published by a service is used: an edge is where its pictures stop.
 
 Needs node, and Python with numpy, Pillow, opencv and pmtiles. Asks each outside service for a few dozen pictures.
 """
-import argparse, io, json, math, os, subprocess, sys, urllib.request
+import argparse, hashlib, io, json, math, os, subprocess, sys, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -58,7 +60,21 @@ def latlon(x, y, z):
     return [round(math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n)))), 5), round(x / n * 360 - 180, 5)]
 
 
+CACHE = None
+
+
 def fetch(url, timeout=120, tries=3):
+    if CACHE:
+        f = Path(CACHE) / hashlib.sha1(url.encode()).hexdigest()
+        if f.exists():
+            return f.read_bytes() or None
+        data = _fetch(url, timeout, tries)
+        f.write_bytes(data or b"")
+        return data
+    return _fetch(url, timeout, tries)
+
+
+def _fetch(url, timeout=120, tries=3):
     for i in range(tries):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout) as r:
@@ -103,9 +119,11 @@ class Grid:
         if bx > ax and by > ay:
             self.m[ay:by, ax:bx] |= m[ay - gy:by - gy, ax - gx:bx - gx]
 
-    def rings(self, eps=1.5):
+    def rings(self, eps=1.5, shrink=0):
         m = cv2.morphologyEx(self.m * 255, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))       # hairline gaps and dark specks are not edges
         m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))                   # nor are single stray pixels
+        if shrink:
+            m = cv2.erode(m, np.ones((2 * shrink + 1, 2 * shrink + 1), np.uint8))            # a cut line sits just inside the picture
         mpp = 2 * math.pi * 6378137 * math.cos(math.radians(39.74)) / (256 * 2 ** self.z)
         found, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)   # the outer edge only: a dark lake is not a hole
         out = []
@@ -183,38 +201,49 @@ def bake(year, src, region, local):
     if src["stream"] or src["boxes"]:
         boxes.append(region)
     g = Grid(14 if any(p.get("pm") for p in ps) else 12 if src["stream"] else 13, boxes)
-    for p in ps:
+    cuts = {}
+    for i, p in enumerate(ps):
         if p.get("pm"):
             from_pm(g, p, local)
-        elif p["kind"] == "xyz":
-            from_xyz(g, p)
+            continue
+        # an outside service: its own picture on its own grid, kept as the line its layer is cut along
+        own = Grid(13, [[(p["cover"][0], p["cover"][1]), (p["cover"][2], p["cover"][3])]])
+        if p["kind"] == "xyz":
+            from_xyz(own, p)
         else:
-            exports(g, p["service"] + "/export", 13, p["cover"], True, "" if p.get("layer") is None else f"&layers=show:{p['layer']}")
+            exports(own, p["service"] + "/export", 13, p["cover"], True, "" if p.get("layer") is None else f"&layers=show:{p['layer']}")
+        cuts[str(i)] = own.rings(eps=1.0, shrink=1 if p["kind"] == "xyz" else 2)   # a map service's white bleeds a pixel into its picture
+        g.put(own.m, own.z, own.x0, own.y0)
     if src["stream"]:
         lats, lons = [c[0] for c in region], [c[1] for c in region]
         exports(g, src["stream"] + "/exportImage", 11, [min(lats) - 0.05, min(lons) - 0.05, max(lats) + 0.05, max(lons) + 0.05], False)
     for b in src["boxes"]:
         pts = np.array([[round(x) - g.x0, round(y) - g.y0] for x, y in (px(lat, lon, g.z) for lat, lon in b)], np.int32)
         cv2.fillPoly(g.m, [pts], 1)
-    return g
+    return g, cuts
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--local"); ap.add_argument("--only"); ap.add_argument("--debug")
+    ap.add_argument("--local"); ap.add_argument("--only"); ap.add_argument("--debug"); ap.add_argument("--cache")
     a = ap.parse_args()
+    if a.cache:
+        Path(a.cache).mkdir(parents=True, exist_ok=True)
+        CACHE = a.cache
     d = json.loads(subprocess.run(["node", "-e", DUMP], cwd=ROOT, capture_output=True, text=True, check=True).stdout)
     out_path = ROOT / "data" / "outlines.json"
-    out = json.loads(out_path.read_text()) if out_path.exists() and a.only else {}
+    out = json.loads(out_path.read_text()) if out_path.exists() and a.only else {"edge": {}, "cut": {}}
     for year, src in d["years"].items():
         if a.only and year not in a.only.split(","):
             continue
-        g = bake(year, src, d["region"], a.local)
-        out[year] = g.rings()
-        print(year, f"z{g.z}", g.m.shape, len(out[year]), "rings,", sum(len(r) for r in out[year]), "points", flush=True)
+        g, cuts = bake(year, src, d["region"], a.local)
+        out["edge"][year] = g.rings()
+        if cuts:
+            out["cut"][year] = cuts
+        print(year, f"z{g.z}", g.m.shape, len(out["edge"][year]), "rings,", sum(len(r) for r in out["edge"][year]), "points; cuts", {k: sum(len(r) for r in v) for k, v in cuts.items()}, flush=True)
         if a.debug:
             Path(a.debug).mkdir(parents=True, exist_ok=True)
             f = max(1, max(g.m.shape) // 1400)
             cv2.imwrite(str(Path(a.debug) / f"{year}.png"), cv2.resize(g.m * 255, None, fx=1 / f, fy=1 / f, interpolation=cv2.INTER_AREA))
-    out_path.write_text(json.dumps({k: out[k] for k in sorted(out)}, separators=(",", ":")))
+    out_path.write_text(json.dumps({"edge": {k: out["edge"][k] for k in sorted(out["edge"])}, "cut": {k: out["cut"][k] for k in sorted(out["cut"])}}, separators=(",", ":")))
     print(out_path.stat().st_size, "bytes")
