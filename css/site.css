@@ -154,6 +154,8 @@ dialog h1 { margin: 0 0 8px; font-size: 22px; letter-spacing: -0.01em; }
 dialog h2 { margin: 18px 0 4px; font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--dim); }
 dialog p { margin: 0 0 10px; color: #cfd6dc; }
 dialog b { color: var(--ink); }
+dialog ul { margin: 0 0 10px; padding-left: 18px; color: #cfd6dc; }
+dialog li { margin: 0 0 7px; }
 .mjc-foot { margin-top: 18px; text-align: center; font-size: 13px; opacity: 0.8; }
 .mjc-foot a { color: inherit; }
 #about-close { position: sticky; float: right; top: 0; margin: -8px -10px 0 0; }
