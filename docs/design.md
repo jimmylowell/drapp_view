@@ -196,7 +196,10 @@ as it is: *About* is a short list of how each group of years arrives, and the de
 lives on this page. Its pictures are in `img/placing/`.
 
 Where a USGS year and a neighbour's scan share a key (1953, 1970, 1980), USGS is tried
-first; a decade key reads as its year ("1970", not "1970s") where the USGS year covers
+first: where the first source of a year has a picture, that is the picture, and a later
+source is drawn only where the earlier ones have none (a later tile is not even asked for
+where the earlier tiles at that spot are solid photograph). The tag and the line under the
+year name the source drawn at the middle of the map. A decade key reads as its year ("1970", not "1970s") where the USGS year covers
 the middle of the map.
 
 ## Where a year ends
