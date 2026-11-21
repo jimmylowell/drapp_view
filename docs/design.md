@@ -190,6 +190,31 @@ Where a USGS year and a neighbour's scan share a key (1953, 1970, 1980), USGS is
 first; a decade key reads as its year ("1970", not "1970s") where the USGS year covers
 the middle of the map.
 
+## Where a year ends
+
+Every year has a real edge, and it is drawn as a dashed line in the accent colour. The
+edge is **where the year's sources actually have picture**, not the box a service
+publishes: `scripts/bake_outlines.py` asks each source (our own tile files, the cached
+tile services, the counties' map services, DRCOG's mosaics, and the archive's index)
+where it has picture, lays the answers on one grid and joins them, so a year has one
+edge whatever its sources are. The result is `data/outlines.json`, a few rings of
+latitude and longitude a year, fetched once when a year is first shown.
+
+**No blank fill.** A county's map service paints white where it has no picture, and the
+1933 tiles paint black. The same file holds each outside service's own shape, shrunk by
+a pixel or two, and its layer is cut along it (a CSS clip in map pixels, set again when
+the zoom changes), so the fill never shows and today's picture, dimmed, shows instead.
+A view that runs past a year's edge counts as not filled, which is what brings that
+picture up underneath.
+
+When the edge is on screen a note says what the line is and what lies past it (today's
+picture, dimmed); while comparing, the note stays away and the line shows on its own
+side. The line holds nothing in: the map moves freely across it.
+
+The edge is as good as the grid it was read on: about 10 m for our own tiles, 15 to
+30 m for the tile and map services, 60 to 100 m for the mosaics. A county's map service answers white
+where it has no picture, so there the edge is where the white begins.
+
 ## Denver itself between 1933 and 2000
 
 Apart from the USGS years above, central Denver has one year before DRAPP that a browser can draw: 1933, Jasper King's survey, [georeferenced by the City and County of Denver](https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver) (the tile service credits the City of Denver Open Data Catalog). Every other pre-2000 layer on the timeline belongs to a neighbour, and
