@@ -14,7 +14,7 @@
 - The USGS tiles are one file a year, not loose tiles: 842,629 tiles are far past what Pages holds, and a file can be handed to anyone whole. No Worker: the page needs none, and a Worker adds code to keep and a daily request allowance.
 - A file over 512 MB is split by zoom, because Cloudflare's Free plan caches no file larger than that; a cache rule on the address (edge 30 days, browser 1 day) is what makes Cloudflare answer repeat reads.
 
-**Next.** Jimmy's look at the rebuilt page. A merge goes live only by `wrangler pages deploy` of `index.html`, `favicon.svg`, `css/`, `js/` and `data/` to project `drapp`. Pages serves the scripts with a four-hour cache, so `index.html` links each one with `?v=` and a stamp: give a file a stamp it has never had in the same commit as any change to it, or a returning browser runs the new page with the old file. The date alone is not enough when a file changes twice in a day (add a letter: `20261120b`).
+**Next.** Jimmy's look at the rebuilt page. A merge goes live only by `wrangler pages deploy` of `index.html`, `placing.html`, `favicon.svg`, `css/`, `js/`, `data/` and `img/` to project `drapp`. Pages serves the scripts with a four-hour cache, so `index.html` links each one with `?v=` and a stamp: give a file a stamp it has never had in the same commit as any change to it, or a returning browser runs the new page with the old file. The date alone is not enough when a file changes twice in a day (add a letter: `20261120b`).
 
 **Open.**
 - DRCOG's bucket now has a `2024/` folder of archive tiles; the page does not use it (2024 is tiles).
