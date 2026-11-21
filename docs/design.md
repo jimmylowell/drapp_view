@@ -179,6 +179,15 @@ alone (`<name>-z17.pmtiles`, `-z18` for 2002). The bucket's CORS rule is
 `ci/r2-cors.json`. The files are made from the scans on the build machine; they are
 not in this repo.
 
+**Sharpness goes by the spot.** A placed year is photographs of several sharpnesses
+joined together: 1980 is a low flight scanned at about 2 ft a pixel over the south side
+and a high one at about 33 ft over everything else. `data/usgs-zones.json` says which
+the join draws where (the join's own rule, followed on a 15 m grid; photographs grouped
+by scan: to 1 m, 1 to 2, 2 to 4, 4 to 8, over 8 m a pixel). The year list's pixel note
+and the blurry fold read it for the middle of the map, so 1980 reads "3 ft" in
+Englewood and "34 ft", folded as blurry, at the Capitol. The file is made on the build
+machine with the tiles, and has to be made again whenever a year is joined again.
+
 **The page that explains it.** `placing.html`, linked from *About* by a row of its own under the opening paragraph (and again inside the USGS item): how one 1991 frame
 went from scan to map, in six steps with pictures of that frame; why the years were placed
 newest to oldest; every year's flight dates, photographs placed and held-out miss, from

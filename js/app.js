@@ -594,13 +594,31 @@
   /* How fine the picture is there: the ground one pixel covers, as the source
      records it (a provider's `res`, in inches; DRCOG's mosaic grid; the archive
      layout). The satellite's varies from spot to spot; its tag reads it. */
+  /* A placed USGS year is photographs of several sharpnesses joined together
+     (1980 is a low flight at about 2 ft over the south side and a high one at
+     about 33 ft over everything else). data/usgs-zones.json says which the
+     join draws where, so the pixel note and the blurry fold go by the spot,
+     not the year: [[inches, rings], ...] a year, a spot being inside a zone
+     when it is inside an odd number of its rings. */
+  let zoneData = null;
+  fetch('data/usgs-zones.json?v=20261120').then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
+    .then((z) => { zoneData = z; chipSig = ''; if (map) paintTimeline(); });
+  function zoneFt(year, lat, lon) {
+    for (const [inches, rings] of (zoneData && zoneData[year]) || []) {
+      let n = 0;
+      for (const r of rings) if (insideRing(r, lat, lon)) n++;
+      if (n % 2) return inches / 12;
+    }
+    return 0;
+  }
   function pixelFt(y, h, lat, lon) {
     const src = S[y];
     if (src.sat) return 0;
     if (src.stream) return SRC_RES;
     if (h === 'read') return src.layout ? src.layout.res : 0;
     const p = (src.providers || []).find((q) => providerHere(q, lat, lon));
-    return p && p.res ? p.res / 12 : 0;
+    if (!p || !p.res) return 0;
+    return (p.usgs && zoneFt(y, lat, lon)) || p.res / 12;
   }
   function pixelNote(y, h, lat, lon) {
     const ft = pixelFt(y, h, lat, lon);
