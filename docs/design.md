@@ -179,6 +179,13 @@ alone (`<name>-z17.pmtiles`, `-z18` for 2002). The bucket's CORS rule is
 `ci/r2-cors.json`. The files are made from the scans on the build machine; they are
 not in this repo.
 
+**The page that explains it.** `placing.html`, linked from *About* by a row of its own under the opening paragraph (and again inside the USGS item): how one 1991 frame
+went from scan to map, in six steps with pictures of that frame; why the years were placed
+newest to oldest; every year's flight dates, photographs placed and held-out miss, from
+the placing runs' records; where it is weak; what it does not do. The map itself stays
+as it is: *About* is a short list of how each group of years arrives, and the detail
+lives on this page. Its pictures are in `img/placing/`.
+
 Where a USGS year and a neighbour's scan share a key (1953, 1970, 1980), USGS is tried
 first; a decade key reads as its year ("1970", not "1970s") where the USGS year covers
 the middle of the map.

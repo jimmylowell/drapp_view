@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0f1418">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="js/vendor/leaflet.css">
-<link rel="stylesheet" href="css/site.css?v=20261120d">
+<link rel="stylesheet" href="css/site.css?v=20261120g">
 </head>
 <body>
 
@@ -91,14 +91,17 @@
   <button type="button" id="about-close" class="icon" aria-label="Close">✕</button>
   <h1>Denver Aerials</h1>
   <p>Every two years since 2002 the <a href="https://drcog.org/data-maps-modeling/data-acquisition-projects" rel="noopener">Denver Regional Aerial Photography Project</a> (DRAPP) has photographed the whole metro area from the air, down to 3 inches a pixel. It is run by the <a href="https://en.wikipedia.org/wiki/Denver_Regional_Council_of_Governments" rel="noopener">Denver Regional Council of Governments</a> (DRCOG), the metro area's planning organization, whose members are its cities and counties, and <a href="https://rmr.asprs.org/need-2026-imagery-partner-with-drcog/" rel="noopener">about 50 organizations</a> pool their money for each flight. The pictures are public. This page is a way to look at them: move around, step through the years, put two side by side, save what you find.</p>
-  <h2>How the years load</h2>
-  <p>A year comes one of three ways: as <b>map tiles</b>, small ready-made squares that load at once; as a <b>read of DRCOG's archive</b>, cut from the original photo files while you wait; or as <b>older scans</b> that a county or agency serves as a map of its own ground.</p>
-  <p><b>2018 to 2026</b> come as map tiles from DRCOG's mosaics, hosted by Sanborn; 2026 is the interim mosaic. Nothing is fetched while the map is moving. When it stops, the tiles on screen arrive at ordinary screen detail.</p>
-  <p><b>2004 to 2016</b> have no map service for most of the region, only DRCOG's raw archive: one large photo file per square of ground. Picking one reads just the part under the screen out of those files, piece by piece, and leaves it on the map. That takes seconds and more data, where the tiled years are instant. After that, moving somewhere new reads nothing until you press <i>Load here</i>, which says what it will cost first. 2002 and 2008 are in file formats a browser cannot open.</p>
-  <p><b>Inside Arapahoe County</b> the county's own map service has every flight from 1998 to 2026, so every year there is instant.</p>
-  <p><b>Before DRAPP</b> there was no regional programme. The older years come from whoever has scans online and cover only their own ground: the 1933 King aerial survey of central Denver, <a href="https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver" rel="noopener">georeferenced by the City and County of Denver</a>, <a href="https://maps.bouldercounty.org/arcgis/rest/services/RASTER" rel="noopener">Boulder County</a> (1977 and 2000), South Metro Fire Rescue's scans of its district by decade from the 1950s to the 1990s, and CDOT's scans of Golden (1930), Boulder (1948) and Englewood–Littleton (1953). The timeline only shows the years that exist where you are looking.</p>
-  <p><b>1939 to 1991</b> come from the <a href="https://en.wikipedia.org/wiki/United_States_Geological_Survey" rel="noopener">U.S. Geological Survey</a>'s aerial photo single frames, downloaded from <a href="https://earthexplorer.usgs.gov/" rel="noopener">EarthExplorer</a>: scans of the film, which carry no map position of their own. Each frame was placed here by matching it against USGS orthophotos of the 1990s and the years already placed, and each year's frames were joined into one picture. <i>n m held out</i> beside a year is how far off its middle frame is, in metres, at check points the fit was not given.</p>
-  <p><b>1993–94 and 1999</b> are USGS orthophotos, already on the map as published, and <b>2002</b> across central Denver is DRCOG's own orthoimagery of April 2002, which USGS also holds.</p>
+  <a class="page-link" href="placing.html"><span><b>How the old photographs were placed</b><small>One 1991 photograph, step by step, and how far off each year is</small></span><i aria-hidden="true">→</i></a>
+  <h2>The years</h2>
+  <p>The timeline shows only the years that exist where you are looking. A year comes one of these ways:</p>
+  <ul>
+    <li><b>2018 to 2026</b> are map tiles from DRCOG's mosaics, hosted by Sanborn; 2026 is the interim mosaic. They load at once, and nothing is fetched while the map is moving.</li>
+    <li><b>2004 to 2016</b> have no map service for most of the region, only DRCOG's archive of large photo files. Picking one reads just the part under the screen. That takes seconds and more data; moving somewhere new reads nothing until you press <i>Load here</i>, which says what it will cost first. DRCOG's own 2002 and 2008 files are in formats a browser cannot open.</li>
+    <li><b>Inside Arapahoe County</b> the county's own map service has every flight from 1998 to 2026, so every year there is instant.</li>
+    <li><b>1939 to 2002 around central Denver</b> come from the <a href="https://en.wikipedia.org/wiki/United_States_Geological_Survey" rel="noopener">U.S. Geological Survey</a>, by way of <a href="https://earthexplorer.usgs.gov/" rel="noopener">EarthExplorer</a>. 1939 to 1991 are scans of film, which carry no map position: each photograph was placed here by matching it to pictures already on the map, and <i>n m held out</i> beside a year is how far off its middle photograph is, in metres. <a href="placing.html">How they were placed</a>. 1993–94 and 1999 are USGS orthophotos and 2002 is DRCOG's orthoimagery of April 2002, all three shown as published.</li>
+    <li><b>Other old years</b> come from whoever has scans online, each for its own ground; before DRAPP there was no regional programme. They are the 1933 King aerial survey of central Denver, <a href="https://history.denverlibrary.org/research-tool/1933-king-aerial-survey-denver" rel="noopener">georeferenced by the City and County of Denver</a>, <a href="https://maps.bouldercounty.org/arcgis/rest/services/RASTER" rel="noopener">Boulder County</a> (1977 and 2000), South Metro Fire Rescue's scans of its district by decade from the 1950s to the 1990s, and CDOT's scans of Golden (1930), Boulder (1948) and Englewood–Littleton (1953).</li>
+  </ul>
+  <p>Years coarser than a metre a pixel wait behind <i>Show blurry years</i> at the foot of the year list.</p>
   <h2>Against today's satellite</h2>
   <p>In Compare, <b>Satellite</b> at the end of the timeline puts Esri's World Imagery, a satellite base map, on one side, so DRAPP's 3 inches can be set against it with the divider. The tag on that side says which satellite took the picture under the middle of the screen, its pixel and the day, as Esri's own records give them. Try the <a href="#ll=39.739250,-104.984850&amp;z=21&amp;y=2024-esri" data-close>State Capitol dome</a> or <a href="#ll=39.753650,-105.000750&amp;z=21&amp;y=2024-esri" data-close>Union Station's train hall</a>.</p>
   <h2>Your data</h2>
@@ -127,6 +130,6 @@
 <script src="js/estimate.js?v=20261113"></script>
 <script src="js/geocode.js?v=20261113"></script>
 <script src="js/zip.js?v=20261113"></script>
-<script src="js/app.js?v=20261120d"></script>
+<script src="js/app.js?v=20261120g"></script>
 </body>
 </html>
