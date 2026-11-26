@@ -117,15 +117,24 @@
      Each year's tiles (WebP, zoom 10 to `maxZoom`) are packed into one PMTiles
      file in our own R2 bucket and read from it a tile at a time by Range
      request (js/tiles.js). `deep` names a year too big for Cloudflare to cache
-     as one file (over 512 MB): its deepest zoom is a second file, <name>-z<zoom>. */
+     as one file (over 512 MB): its deepest zoom is a second file, <name>-z<zoom>.
+     A year whose file was replaced in the bucket carries `?v=` in its
+     addresses (FILE_VERSION), so no cache holds old bytes under them. */
   const USGS_FILES = 'https://drapp-tiles.myjimmycloud.com/usgs/';
-  const pmFiles = (name, deep) => ({
-    url: USGS_FILES + name + '.pmtiles',
-    deep: deep ? { zoom: deep, url: `${USGS_FILES}${name}-z${deep}.pmtiles` } : null,
-  });
+  const FILE_VERSION = {
+    1969: '20261121', 1970: '20261121', 1971: '20261121', 1972: '20261121', 1975: '20261121',
+    1978: '20261121', 1980: '20261121', 1983: '20261121', 1984: '20261121',
+  };
+  const pmFiles = (name, deep, v) => {
+    const q = v ? `?v=${v}` : '';
+    return {
+      url: `${USGS_FILES}${name}.pmtiles${q}`,
+      deep: deep ? { zoom: deep, url: `${USGS_FILES}${name}-z${deep}.pmtiles${q}` } : null,
+    };
+  };
   const USGS_HOME = 'https://earthexplorer.usgs.gov/';
   const usgs = (year, cover, maxZoom, res, err, deep) => ({
-    kind: 'xyz', pm: pmFiles(String(year), deep), minZoom: 10, maxZoom, cover, res, usgs: true,
+    kind: 'xyz', pm: pmFiles(String(year), deep, FILE_VERSION[year]), minZoom: 10, maxZoom, cover, res, usgs: true,
     src: `aerial photos, placed by matching, ${err} m held out`, credit: 'USGS', area: 'the USGS frames around Denver', home: USGS_HOME,
   });
   const U = {
