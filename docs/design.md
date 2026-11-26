@@ -65,14 +65,14 @@ panning/zooming should not kill bandwidth immediately."
 
 | | Years | How it arrives |
 |---|---|---|
-| **Tiles** | 2018–2026 region-wide (DRCOG's mosaics on Sanborn's server; 2026 is the interim mosaic). 1998–2026 inside Arapahoe County (the county's map service, one layer per flight). 2006–2016 inside Jefferson County (the county's image services, one a flight). 1930–2000 where an agency has scans online. 1939–1991, 1993–94, 1999 and 2002 around central Denver from USGS (below). | An ordinary tile layer (`js/tiles.js`). Picking the year is instant. |
-| **Reads** | 2004 everywhere outside Arapahoe County; 2006, 2010, 2012, 2014, 2016 everywhere outside Arapahoe and Jefferson Counties | No server renders these. The page reads the view out of DRCOG's raw GeoTIFFs with HTTP range requests (`js/tiffwindow.js`) and leaves it on the map as a patch. |
+| **Tiles** | 2018–2026 region-wide (DRCOG's mosaics on Sanborn's server; 2026 is the interim mosaic). 1998–2026 inside Arapahoe County (the county's map service, one layer per flight). 2006–2016 inside Jefferson County (the county's image services, one a flight). 2014 in and east of Boulder County (the county's map services). 1930–2000 where an agency has scans online. 1939–1991, 1993–94, 1999 and 2002 around central Denver from USGS (below). | An ordinary tile layer (`js/tiles.js`). Picking the year is instant. |
+| **Reads** | 2004 everywhere outside Arapahoe County; 2006, 2010, 2012, 2014, 2016 everywhere outside Arapahoe and Jefferson Counties (2014 also outside Boulder County's copy) | No server renders these. The page reads the view out of DRCOG's raw GeoTIFFs with HTTP range requests (`js/tiffwindow.js`) and leaves it on the map as a patch. |
 
 DRCOG's own 2002 (JPEG 2000) and 2008 (MrSID) files are in formats a browser cannot
 open. 2002 draws across central Denver from the copy USGS holds (below); 2008 is on
 the timeline only inside Arapahoe and Jefferson Counties.
 
-Whether a spot is inside Arapahoe or Jefferson County is asked of the county's own
+Whether a spot is inside Arapahoe or Jefferson County, or inside Boulder County's 2014 copy, is asked of the county's own
 service: one 16 px export (the provider's `gate` in `js/sources.js`), remembered per
 half-mile cell (`inCounty` in `js/app.js`). Each service's extent box takes in part of
 Denver, where it answers blank: Arapahoe's white, Jefferson's white inside its box and
@@ -293,6 +293,57 @@ DRCOG's mosaics everywhere already. Read from each service's own description on
   website's [Privacy and Site Disclaimer](https://www.jeffco.us/2845/Privacy-and-Site-Disclaimer)
   reserves the content of `jeffco.us` itself and gives no warranty for the accuracy or
   timeliness of its data. Nothing found forbids showing the imagery on another site.
+
+## Boulder County
+
+Boulder County serves its own copy of the DRAPP 2014 flight as two ArcGIS map services
+in Colorado North state plane, which the server reprojects on export:
+`https://maps.bouldercounty.org/arcgis/rest/services/RASTER/DRAPP2014_6INCH/MapServer`
+over the plains and `…/DRAPP2014_1FOOT/MapServer` over the mountains, split at about
+105.353° W. It holds no other DRAPP year from 2004 to 2016 (its other recent layers are
+Pictometry flights, not DRAPP). Read from each layer's own description on 2026-11-26:
+
+| Year | Service | Pixel | Bands |
+|---|---|---|---|
+| 2014 | `DRAPP2014_6INCH` | 0.5 ft (6 in) | 4 (RGB and infrared) |
+| 2014 | `DRAPP2014_1FOOT` | 1 ft | 4 (RGB and infrared) |
+
+- **Extent.** The 6 in service runs from 39.856° to 40.307° N and from 105.354° to
+  104.955° W; the 1 ft service from 39.857° to 40.278° N and from 105.712° to 105.353° W.
+  The 6 in service has picture across its whole box, so it reaches past the county line
+  into Broomfield, Westminster, Thornton and Erie; the 1 ft service paints white east of
+  its split.
+- **From a browser.** `export` answers a cross-origin request with
+  `Access-Control-Allow-Origin` set to `https://drapp.myjimmycloud.com`. Each service is
+  asked by its own 16 px gate, like Jefferson's, so a spot outside its picture still offers
+  the archive read.
+- **Credit.** The services' `copyrightText` and service description are empty; the layer
+  description names DRAPP 2014 and the DRCOG project area. The page credits Boulder County
+  by name, with a link to its `RASTER` folder, and DRCOG's CC BY 3.0 line stays as it is.
+- **Terms.** Boulder County's [Open Data Terms of Use](https://bouldercounty.gov/government/open-data/terms-of-use/)
+  grant "a world-wide, royalty-free, non-exclusive license to use, modify, and distribute
+  the datasets … for any lawful purpose", with attribution and no implied endorsement. Those
+  terms are written for the county's Open Data Catalog, and the 2014 layers are not listed
+  in it (searched 2026-11-26); no other page of the county's covers its map services.
+  The photographs themselves are DRAPP's, under DRCOG's CC BY 3.0.
+
+## Other counties and cities, looked for
+
+Looked for on 2026-11-26: other DRAPP members' own copies of the 2004 to 2016 flights. A
+service is drawn only if it answers a cross-origin request from the page, its own
+description names the flight and year, its pixel is stated, and a licence or terms page
+of that government allows showing it.
+
+| Government | What was found | Which check failed |
+|---|---|---|
+| Adams County | `gisimg.adcogov.org/arcgis/rest/services/Aerials` (2022 is listed on ArcGIS Online) | Answers 403 to every request; `gisapp.adcogov.org` the same |
+| Douglas County | `apps.douglas.co.us/gisis/rest/services`: DRAPP 2022 and 2024 only; its `Images` folder | Nothing from 2004 to 2016 in the open list; `Images` needs a login token |
+| Broomfield | `gis.broomfield.org` | Does not answer |
+| Denver | `www.denvergov.org/arcgis/rest/services/Imagery/Aerial2014` and `/12p22p/…` (listed on ArcGIS Online) | `/12p22p/…/Imagery` answers 404; `denvergov.org/arcgis` as in *Denver itself*, above |
+| Louisville | `gis.louisvilleco.gov/arcgis/rest/services/DRAPP`: `DRAPP_2004` (0.3048 m, described as the 2004 flyover), `Aerial_2008`, `DRAPP_2014`, `Imagery_2004`, `Imagery_2016` | No licence or terms page found; `DRAPP_2014`'s description says 2016; `Imagery_2004` and `Imagery_2016` describe nothing |
+| Centennial | `maps.centennialco.gov/…/DRAPP_V2_2014` | Inside Arapahoe County, which already has 2014 |
+| Gilpin County | `DRAPP_2016`, `Aerial_2010` (listed on ArcGIS Online) | `gis.gilpincounty.org/…/WebMapServices` answers 404 |
+| Aurora, Thornton, Westminster, Littleton, Longmont | No ArcGIS server found at the usual addresses; Littleton's portal points at MapMart's services, which no longer resolve | — |
 
 ## How to know it is right
 

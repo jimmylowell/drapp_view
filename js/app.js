@@ -195,7 +195,7 @@
              flat white or black a service paints where it has no picture never
              shows, and today's picture, dimmed, shows there instead. */
   let outlineP = null, edgeData = null;
-  const outlines = () => outlineP || (outlineP = fetch('data/outlines.json?v=20261126s')
+  const outlines = () => outlineP || (outlineP = fetch('data/outlines.json?v=20261126r1130')
     .then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
     .then((o) => (edgeData = { edge: o.edge || {}, cut: o.cut || {} })));
   const hasEdge = (year) => !!(edgeData && (edgeData.edge[year] || []).length);
@@ -1033,6 +1033,9 @@
     'Inside Jefferson County, 2006-2016 are drawn from the county\'s own copies',
     '(https://gisportal.jeffco.us/image/rest/services/DRAPP; county GIS data',
     'under CC BY 4.0, https://creativecommons.org/licenses/by/4.0/).',
+    'In and east of Boulder County, 2014 is drawn from Boulder County\'s own copy',
+    '(https://maps.bouldercounty.org/arcgis/rest/services/RASTER; county open',
+    'data terms, https://bouldercounty.gov/government/open-data/terms-of-use/).',
     'Other years come from Arapahoe County, Boulder County, South Metro Fire',
     'Rescue, the Colorado Department of Transportation and the Denver Public',
     'Library; the file name says which year each picture is.',

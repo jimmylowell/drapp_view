@@ -66,10 +66,23 @@
      one, both cached map services in Colorado North state plane; the server
      reprojects on export. */
   const BOULDER = 'https://maps.bouldercounty.org/arcgis/rest/services/RASTER/';
-  const boulder = (name, cover, res, src) => ({
+  const boulder = (name, cover, res, src, gated) => ({
     kind: 'map', service: BOULDER + name + '/MapServer', layer: null, cover, res,
     src, credit: 'Boulder County', area: 'Boulder County', home: BOULDER + name + '/MapServer',
+    ...(gated ? { gate: { url: BOULDER + name + '/MapServer/export', layer: null }, area: 'Boulder County and the suburbs to its east' } : {}),
   });
+  /* Boulder County's own copy of the DRAPP 2014 flight, two map services
+     (checked 2026-11-26): 6 in over the plains and 1 ft over the mountains,
+     split at about 105.353 W. Each layer's description names DRAPP 2014 and
+     its ground sample; they answer export cross-origin and paint flat white
+     where they have no picture. Their picture runs past the county line into
+     Broomfield and the north suburbs, so each asks its own 16 px gate.
+     Licence: Boulder County Open Data Terms of Use,
+     https://bouldercounty.gov/government/open-data/terms-of-use/ */
+  const BOULDER_2014 = [
+    boulder('DRAPP2014_6INCH', [39.8564, -105.3536, 40.3072, -104.955], 6, 'county copy of DRAPP', true),
+    boulder('DRAPP2014_1FOOT', [39.8574, -105.7123, 40.2779, -105.3527], 12, 'county copy of DRAPP', true),
+  ];
 
   /* Jasper King's 1933 aerial survey of Denver, georeferenced by the City and
      County of Denver (the Denver Public Library's page for it says so:
@@ -202,7 +215,7 @@
     2020: { stream: SANBORN + 'DRCOG_2020/Orthos_3in_6in_12in/ImageServer', archive: 'tif', layout: LAYOUT_3IN },
     2018: { stream: SANBORN + 'DRCOG_2018/Orthos_3in_6in_12in/ImageServer', archive: 'tif', layout: LAYOUT_3IN },
     2016: { archive: 'tif', layout: LAYOUT_3IN, providers: [arapahoe(5, ARAPAHOE_COUNTY, 6), jeffco(2016, 6)] },
-    2014: { archive: 'tif', layout: LAYOUT_3IN, providers: [arapahoe(6, ARAPAHOE_COUNTY, 6), jeffco(2014, 6)] },
+    2014: { archive: 'tif', layout: LAYOUT_3IN, providers: [arapahoe(6, ARAPAHOE_COUNTY, 6), jeffco(2014, 6), ...BOULDER_2014] },
     2012: { archive: 'tif', layout: LAYOUT_2012, providers: [arapahoe(7, ARAPAHOE_COUNTY, 6), jeffco(2012, 6)] },
     2010: { archive: 'tif', layout: LAYOUT_2010, providers: [arapahoe(8, ARAPAHOE_COUNTY, 6), jeffco(2010, 12)] },
     2008: { archive: 'sid', providers: [arapahoe(9, ARAPAHOE_COUNTY, 6), jeffco(2008, 6)] },

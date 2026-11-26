@@ -134,6 +134,13 @@ check(jp.gate && /DRAPP2014\/ImageServer\/exportImage$/.test(jp.gate.url) && ara
   'each county says how to ask whether a spot is inside it');
 check(A.layerSpecs(2004).every((l) => !l.provider || l.provider.credit !== 'Jefferson County') && A.layerSpecs(2018).every((l) => !l.provider || l.provider.credit !== 'Jefferson County'),
   'Jefferson County is not asked for 2004 or for a mosaic year');
+const bc = A.layerSpecs(2014).filter((l) => l.provider && l.provider.credit === 'Boulder County');
+check(bc.length === 2 && bc.every((l) => l.kind === 'map' && l.detectFlat && l.provider.gate && /\/DRAPP2014_(6INCH|1FOOT)\/MapServer\/export$/.test(l.provider.gate.url)),
+  'Boulder County 2014 is its two own map services, each with its own gate');
+check(PR.covers(bc[0].provider, 40.0176, -105.2797) && !PR.covers(bc[0].provider, 39.7392, -104.9849) && PR.covers(bc[1].provider, 39.9614, -105.5108),
+  'Boulder County 2014 covers Boulder and Nederland, not the Capitol');
+check([2004, 2006, 2008, 2010, 2012, 2016].every((y) => A.layerSpecs(y).every((l) => !l.provider || l.provider.credit !== 'Boulder County' || y < 2002)),
+  'Boulder County is asked only for 2014 among the DRAPP years');
 check(A.layerSpecs(1933)[0].kind === 'xyz' && A.layerSpecs(1933)[0].tileSize === 256, '1933 is a plain tile cache');
 
 /* The USGS years: each a PMTiles file in our bucket; a year over 512 MB keeps
