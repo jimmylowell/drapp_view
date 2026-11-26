@@ -2,7 +2,7 @@
   "rules": [
     {
       "allowed": {
-        "origins": ["https://drapp.myjimmycloud.com"],
+        "origins": ["https://drapp.myjimmycloud.com", "https://next.sprawl-1qb.pages.dev", "https://sprawl.myjimmycloud.com"],
         "methods": ["GET", "HEAD"],
         "headers": ["Range", "If-Match", "If-None-Match"]
       },
