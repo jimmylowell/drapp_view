@@ -21,6 +21,7 @@
       try {
         let note = '';
         if (p.kind === 'map') await imageserver.renderMap(p.service, p.layer, win, canvas, signal);
+        else if (p.kind === 'image') await imageserver.render(p.service, win, canvas, signal);
         else if (p.kind === 'xyz') { const r = await xyz.render(p, win, canvas, signal); note = `(zoom ${r.zoom}, ${r.tiles} tiles)`; }
         else throw new Error('unknown provider kind ' + p.kind);
         return { provider: p, note };

@@ -104,6 +104,7 @@ const SP = (x, y, h = 150) => `${x - h},${y - h},${x + h},${y + h}`;
 const OTHERS = [
   ['Arapahoe 2026', `https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer/export?bbox=${SP(3187911, 1691254)}&bboxSR=2232&imageSR=2232&size=256,256&layers=show:0&format=jpg&f=image`],
   ['Arapahoe 1998', `https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer/export?bbox=${SP(3187911, 1691254)}&bboxSR=2232&imageSR=2232&size=256,256&layers=show:14&format=jpg&f=image`],
+  ['Jefferson 2008', `https://gisportal.jeffco.us/image/rest/services/DRAPP/DRAPP2008/ImageServer/exportImage?bbox=${SP(3078415, 1700191)}&bboxSR=2232&imageSR=2232&size=256,256&format=jpg&f=image`],
   ['Boulder 1977', `https://maps.bouldercounty.org/arcgis/rest/services/RASTER/AERIAL1977_1FT/MapServer/export?bbox=${SP(3064287, 1794685)}&bboxSR=2232&imageSR=2232&size=256,256&format=jpg&f=image`],
   ['Boulder 2000', `https://maps.bouldercounty.org/arcgis/rest/services/RASTER/color2000/MapServer/export?bbox=${SP(3064287, 1794685)}&bboxSR=2232&imageSR=2232&size=256,256&format=jpg&f=image`],
   ['Denver 1933 King tile', 'https://tiles.arcgis.com/tiles/44C95LOqZjbh8Row/arcgis/rest/services/Denver_1933_Aerial/MapServer/tile/17/49740/27309'],

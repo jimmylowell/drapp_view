@@ -124,6 +124,16 @@ check(T.tilePx(512, sz20 / 2, my, 0.25, 2) < 400, 'zoom 21 is already at the sou
 check(T.nativeZoom(0.25) === 21, `tiles stop at zoom 21: ${T.nativeZoom(0.25)}`);
 const arap = A.layerSpecs(2008)[0];
 check(arap.kind === 'map' && arap.layer === 9 && arap.detectFlat, 'Arapahoe 2008 is a map-service layer whose blank tiles are hidden');
+const jc = [2006, 2008, 2010, 2012, 2014, 2016].map((y) => A.layerSpecs(y).find((l) => l.provider && l.provider.credit === 'Jefferson County'));
+check(jc.every((l, i) => l && l.kind === 'image' && l.detectFlat && l.service.endsWith(`/DRAPP${[2006, 2008, 2010, 2012, 2014, 2016][i]}/ImageServer`)),
+  'Jefferson County 2006-2016 are its own image services, whose blank tiles are hidden');
+const jp = jc[1].provider;
+check(PR.covers(jp, 39.7555, -105.2211) && PR.covers(jp, 39.7047, -105.0814) && !PR.covers(jp, 39.7392, -104.9849) && !PR.covers(jp, 39.60, -104.88),
+  'Jefferson County covers Golden and Lakewood, not the Capitol or Centennial');
+check(jp.gate && /DRAPP2014\/ImageServer\/exportImage$/.test(jp.gate.url) && arap.provider.gate && /\/export$/.test(arap.provider.gate.url),
+  'each county says how to ask whether a spot is inside it');
+check(A.layerSpecs(2004).every((l) => !l.provider || l.provider.credit !== 'Jefferson County') && A.layerSpecs(2018).every((l) => !l.provider || l.provider.credit !== 'Jefferson County'),
+  'Jefferson County is not asked for 2004 or for a mosaic year');
 check(A.layerSpecs(1933)[0].kind === 'xyz' && A.layerSpecs(1933)[0].tileSize === 256, '1933 is a plain tile cache');
 
 /* The USGS years: each a PMTiles file in our bucket; a year over 512 MB keeps
