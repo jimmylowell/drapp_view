@@ -195,7 +195,7 @@
              flat white or black a service paints where it has no picture never
              shows, and today's picture, dimmed, shows there instead. */
   let outlineP = null, edgeData = null;
-  const outlines = () => outlineP || (outlineP = fetch('data/outlines.json?v=20261126j')
+  const outlines = () => outlineP || (outlineP = fetch('data/outlines.json?v=20261126s')
     .then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
     .then((o) => (edgeData = { edge: o.edge || {}, cut: o.cut || {} })));
   const hasEdge = (year) => !!(edgeData && (edgeData.edge[year] || []).length);
@@ -603,7 +603,7 @@
      not the year: [[inches, rings], ...] a year, a spot being inside a zone
      when it is inside an odd number of its rings. */
   let zoneData = null;
-  fetch('data/usgs-zones.json?v=20261120').then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
+  fetch('data/usgs-zones.json?v=20261126s').then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
     .then((z) => { zoneData = z; chipSig = ''; if (map) paintTimeline(); });
   function zoneFt(year, lat, lon) {
     for (const [inches, rings] of (zoneData && zoneData[year]) || []) {

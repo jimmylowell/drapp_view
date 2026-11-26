@@ -139,7 +139,7 @@ class Grid:
 
 def from_pm(g, p, local):
     from pmtiles.reader import MmapSource, Reader   # only our own tile files need it
-    name = p["pm"]["url"].rsplit("/", 1)[1]
+    name = p["pm"]["url"].split("?", 1)[0].rsplit("/", 1)[1]   # the file's name, without a ?v= stamp
     z = min(14, p["maxZoom"] - (1 if p["pm"].get("deep") and p["pm"]["deep"]["zoom"] <= 14 else 0))
     path = Path(local) / name if local else None
     if path and path.exists():
