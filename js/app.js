@@ -108,23 +108,25 @@
   }
   const resLabel = (res) => res < 0.96 ? `${Math.round(res * 12)} in` : res >= 10 ? `${Math.round(res)} ft` : `${+res.toFixed(1)} ft`;
 
-  /* ---------- Arapahoe County, yes or no ----------
-     The county's service has every flight back to 1998, but its extent is a
-     rectangle that takes in half of Denver, where it answers blank. One 16 px
-     export of its newest layer says which side of the line a spot is on;
-     remembered per ~half-mile cell. */
-  const ARAPAHOE = 'Arapahoe County';
+  /* ---------- inside a county, yes or no ----------
+     Arapahoe and Jefferson County each serve every DRAPP flight they have,
+     but a service's extent is a rectangle that takes in part of Denver, where
+     it answers blank. One 16 px export (the provider's `gate`) says which side
+     of the county line a spot is on; remembered per ~half-mile cell. True,
+     false, or undefined while asking. */
   const gate = new Map();
-  const gateKey = (lat, lon) => `${lat.toFixed(2)},${lon.toFixed(2)}`;
-  function inArapahoe(lat, lon) {
-    const p = S[2008].providers[0];
+  const gateKey = (g, lat, lon) => `${g.url} ${lat.toFixed(2)},${lon.toFixed(2)}`;
+  function inCounty(p, lat, lon) {
+    const g = p.gate;
+    if (!g) return true;
     if (!providers.covers(p, lat, lon)) return false;
-    const k = gateKey(lat, lon);
+    const k = gateKey(g, lat, lon);
     if (gate.has(k)) return gate.get(k);
     gate.set(k, undefined);
     const c = proj.toStatePlane(lon, lat);
-    const q = new URLSearchParams({ bbox: [c.x - 100, c.y - 100, c.x + 100, c.y + 100].join(','), bboxSR: '2232', imageSR: '2232', size: '16,16', format: 'jpg', layers: 'show:1', f: 'image' });
-    tiles.blob(`${p.service}/export?${q}`).then(async (b) => {
+    const q = new URLSearchParams({ bbox: [c.x - 100, c.y - 100, c.x + 100, c.y + 100].join(','), bboxSR: '2232', imageSR: '2232', size: '16,16', format: 'jpg', f: 'image' });
+    if (g.layer != null) q.set('layers', 'show:' + g.layer);
+    tiles.blob(`${g.url}?${q}`).then(async (b) => {
       const im = await createImageBitmap(b);
       gate.set(k, !tiles.isFlat(im));
     }).catch(() => {
@@ -134,7 +136,7 @@
     }).then(() => { paintTimeline(); assessSoon(); });
     return undefined;
   }
-  const providerHere = (p, lat, lon) => providers.covers(p, lat, lon) && (p.credit !== ARAPAHOE || inArapahoe(lat, lon) === true);
+  const providerHere = (p, lat, lon) => providers.covers(p, lat, lon) && inCounty(p, lat, lon) === true;
 
   /* How a year can be shown at a spot: 'tiles' (instant), 'read' (out of the
      archive, for the view), or null. */
@@ -163,8 +165,8 @@
       out.push({ kind: 'image', service: src.stream, nativeFt: SRC_RES, maxNativeZoom: tiles.nativeZoom(SRC_RES), bounds: regionLL, wide: true });
     }
     for (const p of src.providers || []) {
-      if (p.kind === 'map') {
-        out.push({ kind: 'map', service: p.service, layer: p.layer, nativeFt: p.res / 12, maxNativeZoom: tiles.nativeZoom(p.res / 12), bounds: coverBounds(p), detectFlat: true, provider: p });
+      if (p.kind === 'map' || p.kind === 'image') {
+        out.push({ kind: p.kind, service: p.service, layer: p.layer, nativeFt: p.res / 12, maxNativeZoom: tiles.nativeZoom(p.res / 12), bounds: coverBounds(p), detectFlat: true, provider: p });
       } else {
         const o = { kind: 'xyz', service: p.url || '', tileSize: 256, minZoom: 9, maxNativeZoom: p.maxZoom, bounds: coverBounds(p), provider: p };
         if (p.pm) { o.pm = p.pm; o.minNativeZoom = p.minZoom; }     // one file a year; below its shallowest zoom that zoom is shown smaller
@@ -193,7 +195,7 @@
              flat white or black a service paints where it has no picture never
              shows, and today's picture, dimmed, shows there instead. */
   let outlineP = null, edgeData = null;
-  const outlines = () => outlineP || (outlineP = fetch('data/outlines.json?v=20261120b')
+  const outlines = () => outlineP || (outlineP = fetch('data/outlines.json?v=20261126j')
     .then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
     .then((o) => (edgeData = { edge: o.edge || {}, cut: o.cut || {} })));
   const hasEdge = (year) => !!(edgeData && (edgeData.edge[year] || []).length);
@@ -359,9 +361,9 @@
     const c = map.getCenter();
     const canRead = src.archive === 'tif' && proj.inRegion({ x: vb.cx, y: vb.cy });
     /* Tiles still on their way hold the verdict back, except where the only
-       tile source is Arapahoe County's and this spot is known to be outside
-       it: those tiles will come back blank, so the read need not wait. */
-    const outside = canRead && v.layers.every((l) => l.options.provider && l.options.provider.credit === ARAPAHOE) && inArapahoe(c.lat, c.lng) === false;
+       tile sources are counties' and this spot is known to be outside each of
+       them: those tiles will come back blank, so the read need not wait. */
+    const outside = canRead && v.layers.every((l) => l.options.provider && l.options.provider.gate && inCounty(l.options.provider, c.lat, c.lng) === false);
     let mode;
     if (wide) mode = 'tiles';
     else if (cov.pending && !outside && !patch) mode = 'checking';
@@ -1028,6 +1030,9 @@
     'Aerial photographs 2002-2026: Denver Regional Aerial Photography Project,',
     'Denver Regional Council of Governments (DRCOG), https://data.drcog.org,',
     'licensed CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/).',
+    'Inside Jefferson County, 2006-2016 are drawn from the county\'s own copies',
+    '(https://gisportal.jeffco.us/image/rest/services/DRAPP; county GIS data',
+    'under CC BY 4.0, https://creativecommons.org/licenses/by/4.0/).',
     'Other years come from Arapahoe County, Boulder County, South Metro Fire',
     'Rescue, the Colorado Department of Transportation and the Denver Public',
     'Library; the file name says which year each picture is.',

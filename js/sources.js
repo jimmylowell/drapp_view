@@ -37,10 +37,30 @@
   const ARAPAHOE = 'https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer';
   const ARAPAHOE_HOME = 'https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer';
   const arapahoe = (layer, cover, res, note) => ({
-    kind: 'map', service: ARAPAHOE, layer, cover, res,
+    kind: 'map', service: ARAPAHOE, layer, cover, res, gate: ARAPAHOE_GATE,
     src: 'county aerial' + (note ? ' ' + note : ''), credit: 'Arapahoe County', area: 'Arapahoe County', home: ARAPAHOE_HOME,
   });
   const ARAPAHOE_COUNTY = [39.55, -105.0624, 39.7585, -103.6998];
+  /* `gate` is how the page asks whether a spot is inside the county: one
+     16 px export of `url` (with `layer` shown), flat where the county has no
+     picture (js/app.js, inCounty). */
+  const ARAPAHOE_GATE = { url: ARAPAHOE + '/export', layer: 1 };
+
+  /* Jefferson County serves its own copies of the DRAPP flights 2006 to 2022,
+     one ImageServer a year (checked 2026-11-26: Web Mercator, 1 ft pixels in
+     2006 and 2010, 6 in in 2008, 2012, 2014 and 2016; they answer exportImage
+     cross-origin, and paint flat white or black outside the county). Inside
+     the county they make the years that are otherwise a read of DRCOG's
+     archive (2006-2016), or download-only (2008), plain tiles. The county's
+     GIS data is under CC BY 4.0 (https://www.jeffco.us/3165/Maps-Data-Download);
+     the services carry no copyright text of their own. */
+  const JEFFCO = 'https://gisportal.jeffco.us/image/rest/services/DRAPP/';
+  const JEFFCO_COUNTY = [39.1037, -105.5522, 39.9447, -105.0145];      // the six services' extents together
+  const JEFFCO_GATE = { url: JEFFCO + 'DRAPP2014/ImageServer/exportImage', layer: null };
+  const jeffco = (year, res) => ({
+    kind: 'image', service: JEFFCO + 'DRAPP' + year + '/ImageServer', layer: null, cover: JEFFCO_COUNTY, gate: JEFFCO_GATE, res,
+    src: 'county copy of DRAPP', credit: 'Jefferson County', area: 'Jefferson County', home: 'https://gisportal.jeffco.us/image/rest/services/DRAPP',
+  });
 
   /* Boulder County: a 1977 black-and-white flight at 1 ft and a 2000 colour
      one, both cached map services in Colorado North state plane; the server
@@ -172,12 +192,12 @@
     2022: { stream: SANBORN + 'DRCOG_2022/Mosaics_2022/ImageServer', archive: 'tif', layout: LAYOUT_3IN },
     2020: { stream: SANBORN + 'DRCOG_2020/Orthos_3in_6in_12in/ImageServer', archive: 'tif', layout: LAYOUT_3IN },
     2018: { stream: SANBORN + 'DRCOG_2018/Orthos_3in_6in_12in/ImageServer', archive: 'tif', layout: LAYOUT_3IN },
-    2016: { archive: 'tif', layout: LAYOUT_3IN, providers: [arapahoe(5, ARAPAHOE_COUNTY, 6)] },
-    2014: { archive: 'tif', layout: LAYOUT_3IN, providers: [arapahoe(6, ARAPAHOE_COUNTY, 6)] },
-    2012: { archive: 'tif', layout: LAYOUT_2012, providers: [arapahoe(7, ARAPAHOE_COUNTY, 6)] },
-    2010: { archive: 'tif', layout: LAYOUT_2010, providers: [arapahoe(8, ARAPAHOE_COUNTY, 6)] },
-    2008: { archive: 'sid', providers: [arapahoe(9, ARAPAHOE_COUNTY, 6)] },
-    2006: { archive: 'tif', layout: LAYOUT_2006, providers: [arapahoe(10, ARAPAHOE_COUNTY, 6)] },
+    2016: { archive: 'tif', layout: LAYOUT_3IN, providers: [arapahoe(5, ARAPAHOE_COUNTY, 6), jeffco(2016, 6)] },
+    2014: { archive: 'tif', layout: LAYOUT_3IN, providers: [arapahoe(6, ARAPAHOE_COUNTY, 6), jeffco(2014, 6)] },
+    2012: { archive: 'tif', layout: LAYOUT_2012, providers: [arapahoe(7, ARAPAHOE_COUNTY, 6), jeffco(2012, 6)] },
+    2010: { archive: 'tif', layout: LAYOUT_2010, providers: [arapahoe(8, ARAPAHOE_COUNTY, 6), jeffco(2010, 12)] },
+    2008: { archive: 'sid', providers: [arapahoe(9, ARAPAHOE_COUNTY, 6), jeffco(2008, 6)] },
+    2006: { archive: 'tif', layout: LAYOUT_2006, providers: [arapahoe(10, ARAPAHOE_COUNTY, 6), jeffco(2006, 12)] },
     2004: { archive: 'tif', layout: LAYOUT_2004, providers: [arapahoe(11, ARAPAHOE_COUNTY, 6)] },
     2002: { archive: 'jp2', providers: [O[2002], arapahoe(12, [39.5444, -105.0731, 39.77, -104.2358], 6)] },
     2000: { providers: [

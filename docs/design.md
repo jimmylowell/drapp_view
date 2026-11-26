@@ -65,16 +65,19 @@ panning/zooming should not kill bandwidth immediately."
 
 | | Years | How it arrives |
 |---|---|---|
-| **Tiles** | 2018–2026 region-wide (DRCOG's mosaics on Sanborn's server; 2026 is the interim mosaic). 1998–2026 inside Arapahoe County (the county's map service, one layer per flight). 1930–2000 where an agency has scans online. 1939–1991, 1993–94, 1999 and 2002 around central Denver from USGS (below). | An ordinary tile layer (`js/tiles.js`). Picking the year is instant. |
-| **Reads** | 2004, 2006, 2010, 2012, 2014, 2016 everywhere outside Arapahoe County | No server renders these. The page reads the view out of DRCOG's raw GeoTIFFs with HTTP range requests (`js/tiffwindow.js`) and leaves it on the map as a patch. |
+| **Tiles** | 2018–2026 region-wide (DRCOG's mosaics on Sanborn's server; 2026 is the interim mosaic). 1998–2026 inside Arapahoe County (the county's map service, one layer per flight). 2006–2016 inside Jefferson County (the county's image services, one a flight). 1930–2000 where an agency has scans online. 1939–1991, 1993–94, 1999 and 2002 around central Denver from USGS (below). | An ordinary tile layer (`js/tiles.js`). Picking the year is instant. |
+| **Reads** | 2004 everywhere outside Arapahoe County; 2006, 2010, 2012, 2014, 2016 everywhere outside Arapahoe and Jefferson Counties | No server renders these. The page reads the view out of DRCOG's raw GeoTIFFs with HTTP range requests (`js/tiffwindow.js`) and leaves it on the map as a patch. |
 
 DRCOG's own 2002 (JPEG 2000) and 2008 (MrSID) files are in formats a browser cannot
 open. 2002 draws across central Denver from the copy USGS holds (below); 2008 is on
-the timeline only inside Arapahoe County.
+the timeline only inside Arapahoe and Jefferson Counties.
 
-Whether a spot is inside Arapahoe County is asked of the county's own service: one
-16 px export, remembered per half-mile cell (`inArapahoe` in `js/app.js`). Its extent
-box takes in half of Denver, where it answers blank.
+Whether a spot is inside Arapahoe or Jefferson County is asked of the county's own
+service: one 16 px export (the provider's `gate` in `js/sources.js`), remembered per
+half-mile cell (`inCounty` in `js/app.js`). Each service's extent box takes in part of
+Denver, where it answers blank: Arapahoe's white, Jefferson's white inside its box and
+black past it. The blank-tile test in `js/tiles.js` hides both, and each county's layer
+is cut along its own picture (`data/outlines.json`).
 
 ## What keeps it cheap
 
@@ -250,7 +253,7 @@ The photographs exist. They are prints, film or files behind a login, not map ti
 | [CDOT's ArcGIS Online scans](https://tiles.arcgis.com/tiles/yzB9WM8W0BO3Ql7d/arcgis/rest/services) | 1944–1960 town scans: Golden, Boulder, Englewood–Littleton, Fort Collins, Greeley, Pueblo and others | None covers Denver |
 | [Arapahoe County aerials](https://gis.arapahoegov.com/arcgis/rest/services/Aerials/MapServer) | 1998–2026, one layer per flight | Draws only inside the county; blank over central Denver |
 | [Boulder County rasters](https://maps.bouldercounty.org/arcgis/rest/services/RASTER) | 1977 and 2000 | Boulder County only |
-| [Jefferson County image services](https://gisportal.jeffco.us/image/rest/services) | DRAPP 2006–2022 | Jefferson County only, and nothing before 2006 |
+| [Jefferson County image services](https://gisportal.jeffco.us/image/rest/services/DRAPP) | DRAPP 2006–2022 | Jefferson County only, and nothing before 2006; 2006–2016 are on the timeline there (*Jefferson County*, above) |
 | [Lakewood](https://egis.lakewood.org/server/rest/services) | 2018 and 2020 | Nothing before 2000 |
 | [State of Colorado public imagery on AWS](https://registry.opendata.aws/colorado-imagery/) | NAIP 2005 on, DRAPP 2010 on; its historic folders are the Arkansas basin | Nothing for Denver before 2005 |
 | ArcGIS Online catalogue, searched by text and by a box over central Denver | Only the layers above | — |
@@ -259,6 +262,38 @@ The photographs exist. They are prints, film or files behind a login, not map ti
 USGS is the one route found to Denver between 1934 and 2000, and it is taken. No
 other georeferenced public copy turned up; the years it lacks are in library prints.
 
+## Jefferson County
+
+Jefferson County serves its own copies of the DRAPP flights, one ArcGIS ImageServer a
+year, `https://gisportal.jeffco.us/image/rest/services/DRAPP/DRAPP{year}/ImageServer`,
+for 2006 to 2022. The page uses 2006, 2008, 2010, 2012, 2014 and 2016, the years that
+elsewhere are a read of DRCOG's archive or, for 2008, download only; 2018 to 2022 are
+DRCOG's mosaics everywhere already. Read from each service's own description on
+2026-11-26:
+
+| Years | Pixel | Bands |
+|---|---|---|
+| 2006, 2010 | 0.3048 m (1 ft) | 3 |
+| 2008, 2012, 2014 | 0.1524 m (6 in) | 3 |
+| 2016 | 0.1524 m (6 in) | 4 |
+
+- **Extent.** Web Mercator; together the six boxes run from 39.10° to 39.94° N and from
+  105.55° to 105.01° W. Each service draws whole DRAPP tiles over the county, so its
+  picture ends in steps a little past the county line, not on it.
+- **From a browser.** `exportImage` answers a cross-origin request with
+  `Access-Control-Allow-Origin` set to the asking page (checked from
+  `drapp.myjimmycloud.com` and `next.drapp.pages.dev`). The page asks it for tiles in
+  view only, like Arapahoe's.
+- **Credit.** The services' `copyrightText` is empty, and their description names DRAPP
+  and DRCOG. The page credits Jefferson County by name, with a link to the services,
+  wherever Arapahoe County is credited, and DRCOG's CC BY 3.0 line stays as it is.
+- **Terms.** The county's GIS download page says its GIS data "is covered by the
+  Creative Commons Attribution 4.0 International License"
+  ([Maps & Data Download](https://www.jeffco.us/3165/Maps-Data-Download)). The county
+  website's [Privacy and Site Disclaimer](https://www.jeffco.us/2845/Privacy-and-Site-Disclaimer)
+  reserves the content of `jeffco.us` itself and gives no warranty for the accuracy or
+  timeliness of its data. Nothing found forbids showing the imagery on another site.
+
 ## How to know it is right
 
 - `npm run smoke` passes.
@@ -266,6 +301,7 @@ other georeferenced public copy turned up; the years it lacks are in library pri
   nothing until release on a phone.
 - Picking 2014 downtown shows 2014 within a few seconds without another tap.
 - In Centennial every year from 1953 to 2026 is a solid chip.
+- In Golden and Lakewood, 2006 to 2016 and 2008 draw as Jefferson County tiles, with no read to okay.
 - At the Capitol, 2002, 1999, 1993–94, 1991, 1971 and 1939 each draw, and each placed
   year's line reads "USGS · aerial photos, placed by matching, n m held out".
 - A second request for the same slice of a year's file answers `cf-cache-status: HIT`.

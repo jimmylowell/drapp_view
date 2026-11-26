@@ -69,7 +69,7 @@
     const here = (src.providers || []).filter((p) => providers.covers(p, lat, lon));
     if (here.length) {
       const p = here[0];
-      if (p.kind === 'map') return one(win.px * win.py * 0.25, exportSecs(win.px, win.py), p.credit);
+      if (p.kind === 'map' || p.kind === 'image') return one(win.px * win.py * 0.25, exportSecs(win.px, win.py), p.credit);
       const n = xyz.plan(p, win).count;
       return { requests: n, bytes: n * 25000, secs: 0.5 + n / 12, how: `${p.credit}, ${n} tiles` };
     }

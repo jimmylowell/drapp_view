@@ -8,6 +8,7 @@ For every year on the timeline, each of its sources (js/sources.js) is asked whe
   our own tile files   the tiles themselves (zoom 14): picture where a tile's alpha is above 0
   cached tile services their tiles (zoom 13): picture where a tile is neither transparent nor flat black
   county map services  an export of their whole box (15 m a pixel): picture where it is neither transparent nor white
+  county image services the same, by exportImage: picture where it is neither transparent, white nor black
   DRCOG's mosaics      an export of the region (60 m a pixel): picture where it is not transparent
   DRCOG's archive      the tile boxes in data/index/<year>.json
 
@@ -26,7 +27,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
-from pmtiles.reader import MmapSource, Reader
+
 
 ROOT = Path(__file__).resolve().parent.parent
 R = 20037508.342789244
@@ -91,9 +92,9 @@ def picture(data, fill=None):
     """True where an image has picture: not transparent, and not the flat white or black a service paints where it has none."""
     a = np.asarray(Image.open(io.BytesIO(data)).convert("RGBA"))
     m = a[:, :, 3] > 0
-    if fill == "white":
+    if fill in ("white", "flat"):
         m &= a[:, :, :3].min(axis=2) <= 248
-    if fill == "black":
+    if fill in ("black", "flat"):
         m &= a[:, :, :3].max(axis=2) >= 12
     return m
 
@@ -137,6 +138,7 @@ class Grid:
 
 
 def from_pm(g, p, local):
+    from pmtiles.reader import MmapSource, Reader   # only our own tile files need it
     name = p["pm"]["url"].rsplit("/", 1)[1]
     z = min(14, p["maxZoom"] - (1 if p["pm"].get("deep") and p["pm"]["deep"]["zoom"] <= 14 else 0))
     path = Path(local) / name if local else None
@@ -175,8 +177,9 @@ def from_xyz(g, p):
                 g.put(m, z, tx * 256, ty * 256)
 
 
-def exports(g, base, z, box, white, extra=""):
-    """A service's picture of a box, asked for in blocks of at most 2048 pixels on the zoom-z grid."""
+def exports(g, base, z, box, fill, extra=""):
+    """A service's picture of a box, asked for in blocks of at most 2048 pixels on the zoom-z grid.
+    `fill` is what the service paints where it has no picture: "white", "flat" (white or black) or None."""
     (xa, ya), (xb, yb) = px(box[2], box[1], z), px(box[0], box[3], z)
     xa, ya, xb, yb = int(xa) - 8, int(ya) - 8, int(xb) + 8, int(yb) + 8
     n = 256 * 2 ** z
@@ -188,7 +191,7 @@ def exports(g, base, z, box, white, extra=""):
         my = lambda v: R - v / n * 2 * R
         url = f"{base}?bbox={mx(x)},{my(y + h)},{mx(x + w)},{my(y)}&bboxSR=3857&imageSR=3857&size={w},{h}&format=png32&transparent=true&f=image{extra}"
         data = fetch(url, 180)
-        return b, (picture(data, "white" if white else None) if data else None)
+        return b, (picture(data, fill) if data else None)
     with ThreadPoolExecutor(2) as pool:
         for (x, y, w, h), m in pool.map(one, blocks):
             if m is not None:
@@ -210,13 +213,15 @@ def bake(year, src, region, local):
         own = Grid(13, [[(p["cover"][0], p["cover"][1]), (p["cover"][2], p["cover"][3])]])
         if p["kind"] == "xyz":
             from_xyz(own, p)
+        elif p["kind"] == "image":   # a county ImageServer (Jefferson's): white inside its extent where it has no picture, black past it
+            exports(own, p["service"] + "/exportImage", 13, p["cover"], "flat")
         else:
-            exports(own, p["service"] + "/export", 13, p["cover"], True, "" if p.get("layer") is None else f"&layers=show:{p['layer']}")
+            exports(own, p["service"] + "/export", 13, p["cover"], "white", "" if p.get("layer") is None else f"&layers=show:{p['layer']}")
         cuts[str(i)] = own.rings(eps=1.0, shrink=1 if p["kind"] == "xyz" else 2)   # a map service's white bleeds a pixel into its picture
         g.put(own.m, own.z, own.x0, own.y0)
     if src["stream"]:
         lats, lons = [c[0] for c in region], [c[1] for c in region]
-        exports(g, src["stream"] + "/exportImage", 11, [min(lats) - 0.05, min(lons) - 0.05, max(lats) + 0.05, max(lons) + 0.05], False)
+        exports(g, src["stream"] + "/exportImage", 11, [min(lats) - 0.05, min(lons) - 0.05, max(lats) + 0.05, max(lons) + 0.05], None)
     for b in src["boxes"]:
         pts = np.array([[round(x) - g.x0, round(y) - g.y0] for x, y in (px(lat, lon, g.z) for lat, lon in b)], np.int32)
         cv2.fillPoly(g.m, [pts], 1)
